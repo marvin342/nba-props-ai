@@ -16,6 +16,24 @@ if password != PASSWORD:
     st.stop()
 
 # ------------------------
+# Safe API helper (PREVENTS JSON ERRORS)
+# ------------------------
+def safe_get_json(url):
+    try:
+        r = requests.get(url, timeout=10)
+
+        if r.status_code != 200:
+            return None
+
+        if "application/json" not in r.headers.get("Content-Type", ""):
+            return None
+
+        return r.json()
+
+    except Exception:
+        return None
+
+# ------------------------
 # App UI
 # ------------------------
 st.set_page_config(page_title="NBA Player Props AI", layout="centered")
@@ -28,11 +46,16 @@ st.divider()
 # ------------------------
 # Load today's NBA games
 # ------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def get_games():
     today = date.today().isoformat()
     url = f"https://www.balldontlie.io/api/v1/games?dates[]={today}"
-    return requests.get(url).json()["data"]
+
+    data = safe_get_json(url)
+    if not data or "data" not in data:
+        return []
+
+    return data["data"]
 
 games = get_games()
 
@@ -49,10 +72,15 @@ game = st.selectbox(
 # ------------------------
 # Load players
 # ------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def get_players(team_id):
     url = f"https://www.balldontlie.io/api/v1/players?team_ids[]={team_id}&per_page=25"
-    return requests.get(url).json()["data"]
+
+    data = safe_get_json(url)
+    if not data or "data" not in data:
+        return []
+
+    return data["data"]
 
 team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
 team_id = game["home_team"]["id"] if team_choice == "Home" else game["visitor_team"]["id"]
@@ -68,17 +96,17 @@ player = st.selectbox(
 # ------------------------
 # Pull recent player stats
 # ------------------------
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def get_recent_stats(player_id, games=10):
     url = f"https://www.balldontlie.io/api/v1/stats?player_ids[]={player_id}&per_page={games}"
-    data = requests.get(url).json()["data"]
 
-    if len(data) < 3:
-        return 32, 15, 5, 6  # fallback
+    data = safe_get_json(url)
+    if not data or "data" not in data or len(data["data"]) < 3:
+        return 32, 15, 5, 6  # safe fallback
 
     minutes, shots, fta, points = [], [], [], []
 
-    for g in data:
+    for g in data["data"]:
         try:
             min_played = int(g["min"].split(":")[0])
             minutes.append(min_played)
@@ -87,6 +115,9 @@ def get_recent_stats(player_id, games=10):
             points.append(g["pts"])
         except:
             continue
+
+    if not minutes:
+        return 32, 15, 5, 6
 
     avg_min = sum(minutes) / len(minutes)
     avg_shots = sum(shots) / len(shots)
@@ -126,4 +157,3 @@ if st.button("📈 Predict"):
         st.success("✅ BET SIGNAL")
     else:
         st.warning("⚠️ No Bet")
-
