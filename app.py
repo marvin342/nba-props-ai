@@ -44,44 +44,50 @@ st.subheader("NBA Points Props – Smart Projections")
 st.divider()
 
 # ------------------------
-# Load games with fallback
+# TIMEZONE-SAFE GAME LOADER
 # ------------------------
 @st.cache_data(ttl=1800)
-def get_games_with_fallback():
-    dates = [
-        date.today(),
-        date.today() + timedelta(days=1),
-        date.today() - timedelta(days=1),
-    ]
+def get_games_window():
+    games = []
+    seen_ids = set()
 
-    for d in dates:
+    # Query a safe window: yesterday → +2 days
+    for offset in [-1, 0, 1, 2]:
+        d = date.today() + timedelta(days=offset)
         url = f"https://www.balldontlie.io/api/v1/games?dates[]={d.isoformat()}"
         data = safe_get_json(url)
-        if data and "data" in data and data["data"]:
-            return data["data"], d
 
-    return [], None
+        if not data or "data" not in data:
+            continue
 
-games, used_date = get_games_with_fallback()
+        for g in data["data"]:
+            if g["id"] not in seen_ids:
+                games.append(g)
+                seen_ids.add(g["id"])
+
+    return games
+
+games = get_games_window()
 
 if not games:
     st.warning(
-        "NBA schedule not published yet. "
-        "This usually updates late morning. "
-        "You can still enter results, view performance, and retrain the model."
+        "NBA schedule not available yet from the API. "
+        "This usually resolves later in the day."
     )
 else:
-    st.caption(f"Games for: {used_date.isoformat()}")
+    st.caption("Showing all upcoming / recent NBA games (timezone-safe)")
 
 # ------------------------
 # GAME + PLAYER SECTION
-# (only shown if games exist)
 # ------------------------
 if games:
     game = st.selectbox(
         "Select Game",
         games,
-        format_func=lambda g: f"{g['home_team']['full_name']} vs {g['visitor_team']['full_name']}"
+        format_func=lambda g: (
+            f"{g['home_team']['full_name']} vs {g['visitor_team']['full_name']} "
+            f"({g['date'][:10]})"
+        )
     )
 
     @st.cache_data(ttl=1800)
