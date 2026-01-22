@@ -83,16 +83,8 @@ def get_players(team_id):
         return []
     return data["data"]
 
-team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
-team_id = game["home_team"]["id"] if team_choice == "Home" else game["visitor_team"]["id"]
-
-players = get_players(team_id)
-
-player = st.selectbox(
-    "Select Player",
-    players,
-    format_func=lambda p: f"{p['first_name']} {p['last_name']}"
-)
+home_players = get_players(game["home_team"]["id"])
+away_players = get_players(game["visitor_team"]["id"])
 
 # ------------------------
 # Player recent stats
@@ -130,49 +122,76 @@ def get_recent_stats(player_id, games=10):
     return avg_min, avg_shots, avg_fta, std_dev
 
 # ------------------------
-# Matchup adjustments (NEW)
+# Matchup adjustments
 # ------------------------
-def matchup_modifier(game, team_choice):
-    # Pace proxy (league avg ≈ 100)
-    pace = 1.03 if game["home_team_score"] is None else 1.00
-
-    # Defense proxy (simple & conservative)
-    defense = 0.97 if team_choice == "Away" else 1.00
-
-    # Home court
+def matchup_modifier(team_choice):
+    pace = 1.02
+    defense = 0.98 if team_choice == "Away" else 1.00
     home = 1.03 if team_choice == "Home" else 0.97
-
     return pace * defense * home
 
 # ------------------------
-# Sportsbook input
+# 🔥 TOP EDGES TODAY (NEW)
 # ------------------------
+st.divider()
+st.header("🔥 Top Edges Today")
+
+edges = []
+
+for team, players in [("Home", home_players), ("Away", away_players)]:
+    for p in players:
+        mins, shots, fta, std = get_recent_stats(p["id"])
+        base_mean = mins * 0.75 + shots * 1.9 + fta * 0.8
+        mean = base_mean * matchup_modifier(team)
+
+        synthetic_line = mean - 1.5
+        z = (synthetic_line - mean) / std
+        prob_over = 0.5 * (1 - math.erf(z / math.sqrt(2)))
+        edge = (prob_over - 0.524) * 100
+
+        edges.append({
+            "Player": f"{p['first_name']} {p['last_name']}",
+            "Team": team,
+            "Proj Pts": round(mean, 1),
+            "Edge %": round(edge, 2)
+        })
+
+edges = sorted(edges, key=lambda x: x["Edge %"], reverse=True)[:5]
+
+st.table(edges)
+
+# ------------------------
+# MANUAL PLAYER MODE
+# ------------------------
+st.divider()
+st.header("🎯 Manual Player Check")
+
+team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
+players = home_players if team_choice == "Home" else away_players
+
+player = st.selectbox(
+    "Select Player",
+    players,
+    format_func=lambda p: f"{p['first_name']} {p['last_name']}"
+)
+
 line = st.number_input("Sportsbook Line (Points)", step=0.5, value=20.5)
 
-# ------------------------
-# Predict
-# ------------------------
 if st.button("📈 Predict"):
-    minutes, shots, fta, std = get_recent_stats(player["id"])
+    mins, shots, fta, std = get_recent_stats(player["id"])
+    mean = (mins * 0.75 + shots * 1.9 + fta * 0.8) * matchup_modifier(team_choice)
 
-    base_mean = minutes * 0.75 + shots * 1.9 + fta * 0.8
-    adj = matchup_modifier(game, team_choice)
-
-    mean = base_mean * adj
     z = (line - mean) / std
     prob_over = 0.5 * (1 - math.erf(z / math.sqrt(2)))
-
-    st.divider()
-    st.subheader(f"📊 {player['first_name']} {player['last_name']}")
+    edge = (prob_over - 0.524) * 100
 
     st.metric("Projected Points", f"{mean:.2f}")
     st.metric("Over Probability", f"{prob_over*100:.1f}%")
-
-    edge = (prob_over - 0.524) * 100
     st.metric("Model Edge", f"{edge:.2f}%")
 
     if edge >= 6:
         st.success("✅ BET SIGNAL")
     else:
         st.warning("⚠️ No Bet")
+
 
