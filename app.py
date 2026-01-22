@@ -3,7 +3,7 @@ import streamlit as st
 # ------------------------
 # Password protection
 # ------------------------
-PASSWORD = "changethispassword"
+PASSWORD = "benja123"
 
 st.sidebar.title("🔒 Private Access")
 password = st.sidebar.text_input("Password", type="password")
