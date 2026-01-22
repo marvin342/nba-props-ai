@@ -44,6 +44,7 @@ def safe_get_json(url):
 # UI
 # ------------------------
 st.set_page_config(page_title="NBA Player Props AI", layout="centered")
+
 st.title("🏀 NBA Player Props AI")
 st.subheader("NBA Points Props – Smart Projections")
 st.divider()
@@ -58,10 +59,15 @@ window = st.radio(
 )
 
 TODAY = datetime.utcnow().date()
-offsets = [-1] if window == "Yesterday" else [0] if window == "Today" else [1, 2]
+
+offsets = (
+    [-1] if window == "Yesterday"
+    else [0] if window == "Today"
+    else [1, 2]
+)
 
 # ------------------------
-# LOAD GAMES (UTC-safe)
+# LOAD GAMES (UTC SAFE)
 # ------------------------
 @st.cache_data(ttl=1800)
 def load_games(offsets):
@@ -103,18 +109,22 @@ game = st.selectbox(
 )
 
 # ------------------------
-# ✅ CORRECT ROSTERS (THE FIX)
+# ✅ CORRECT ROSTERS (FINAL FIX)
 # ------------------------
 @st.cache_data(ttl=3600)
 def get_players_for_team(team_id):
     """
-    ✅ Correct current roster
-    ✅ No retired players
-    ✅ Correct teams
+    ✅ Correct team
+    ✅ Active players only
+    ✅ 2025–26 season
     ✅ Works BEFORE games
     """
 
-    url = f"https://api.balldontlie.io/v1/teams/{team_id}/players"
+    url = (
+        "https://api.balldontlie.io/v1/players"
+        f"?team_ids[]={team_id}&active=true&season=2026&per_page=100"
+    )
+
     data = safe_get_json(url)
 
     if not data or "data" not in data:
