@@ -44,7 +44,6 @@ def safe_get_json(url):
 # UI
 # ------------------------
 st.set_page_config(page_title="NBA Player Props AI", layout="centered")
-
 st.title("🏀 NBA Player Props AI")
 st.subheader("NBA Points Props – Smart Projections")
 st.divider()
@@ -59,12 +58,7 @@ window = st.radio(
 )
 
 TODAY = datetime.utcnow().date()
-
-offsets = (
-    [-1] if window == "Yesterday"
-    else [0] if window == "Today"
-    else [1, 2]
-)
+offsets = [-1] if window == "Yesterday" else [0] if window == "Today" else [1, 2]
 
 # ------------------------
 # LOAD GAMES (UTC SAFE)
@@ -109,20 +103,19 @@ game = st.selectbox(
 )
 
 # ------------------------
-# ✅ CORRECT ROSTERS (FINAL FIX)
+# ✅ FINAL ROSTER FIX (2025–26 TRUTH)
 # ------------------------
 @st.cache_data(ttl=3600)
 def get_players_for_team(team_id):
     """
-    ✅ Correct team
-    ✅ Active players only
-    ✅ 2025–26 season
-    ✅ Works BEFORE games
+    ✅ Only players who actually played in 2025–26
+    ✅ Correct teams
+    ✅ No retired players
     """
 
     url = (
-        "https://api.balldontlie.io/v1/players"
-        f"?team_ids[]={team_id}&active=true&season=2026&per_page=100"
+        "https://api.balldontlie.io/v1/stats"
+        f"?season=2026&team_ids[]={team_id}&per_page=100"
     )
 
     data = safe_get_json(url)
@@ -130,8 +123,19 @@ def get_players_for_team(team_id):
     if not data or "data" not in data:
         return []
 
+    players = {}
+
+    for row in data["data"]:
+        p = row.get("player")
+        mins = row.get("min")
+
+        if not p or not mins or mins == "0:00":
+            continue
+
+        players[p["id"]] = p
+
     return sorted(
-        data["data"],
+        players.values(),
         key=lambda p: (p["last_name"], p["first_name"])
     )
 
@@ -186,7 +190,7 @@ team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
 players = home_players if team_choice == "Home" else away_players
 
 if not players:
-    st.warning("Roster unavailable — try another game.")
+    st.warning("Roster unavailable — player has not logged minutes yet.")
     st.stop()
 
 player = st.selectbox(
