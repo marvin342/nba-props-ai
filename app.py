@@ -3,6 +3,7 @@ import requests
 import math
 import csv
 import os
+import subprocess
 from datetime import date, timedelta, datetime
 
 # ------------------------
@@ -110,9 +111,6 @@ def get_recent_stats(player_id, games=10):
         except:
             continue
 
-    if not minutes:
-        return 32, 15, 5, 6
-
     avg_min = sum(minutes) / len(minutes)
     avg_shots = sum(shots) / len(shots)
     avg_fta = sum(fta) / len(fta)
@@ -133,39 +131,10 @@ def matchup_modifier(team_choice):
     return pace * defense * home
 
 # ------------------------
-# 🔥 TOP EDGES TODAY
+# 🎯 MANUAL PICK + LOGGING
 # ------------------------
 st.divider()
-st.header("🔥 Top Edges Today")
-
-edges = []
-
-for team, players in [("Home", home_players), ("Away", away_players)]:
-    for p in players:
-        mins, shots, fta, std = get_recent_stats(p["id"])
-        base_mean = mins * 0.75 + shots * 1.9 + fta * 0.8
-        mean = base_mean * matchup_modifier(team)
-
-        synthetic_line = mean - 1.5
-        z = (synthetic_line - mean) / std
-        prob_over = 0.5 * (1 - math.erf(z / math.sqrt(2)))
-        edge = (prob_over - 0.524) * 100
-
-        edges.append({
-            "Player": f"{p['first_name']} {p['last_name']}",
-            "Team": team,
-            "Proj Pts": round(mean, 1),
-            "Edge %": round(edge, 2)
-        })
-
-edges = sorted(edges, key=lambda x: x["Edge %"], reverse=True)[:5]
-st.table(edges)
-
-# ------------------------
-# 🎯 MANUAL PLAYER CHECK + RESULTS LOGGING
-# ------------------------
-st.divider()
-st.header("🎯 Manual Player Check")
+st.header("🎯 Manual Player Pick")
 
 team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
 players = home_players if team_choice == "Home" else away_players
@@ -176,20 +145,15 @@ player = st.selectbox(
     format_func=lambda p: f"{p['first_name']} {p['last_name']}"
 )
 
-line = st.number_input("Sportsbook Line (Points)", step=0.5, value=20.5)
+line = st.number_input("Sportsbook Line", step=0.5, value=20.5)
 pick_side = st.radio("Pick", ["Over", "Under"], horizontal=True)
 
-if st.button("📈 Predict & Log Pick"):
+if st.button("📈 Predict & Log"):
     mins, shots, fta, std = get_recent_stats(player["id"])
     mean = (mins * 0.75 + shots * 1.9 + fta * 0.8) * matchup_modifier(team_choice)
-
     z = (line - mean) / std
     prob_over = 0.5 * (1 - math.erf(z / math.sqrt(2)))
     edge = (prob_over - 0.524) * 100
-
-    st.metric("Projected Points", f"{mean:.2f}")
-    st.metric("Over Probability", f"{prob_over*100:.1f}%")
-    st.metric("Model Edge", f"{edge:.2f}%")
 
     log_file = "results_log.csv"
     file_exists = os.path.isfile(log_file)
@@ -198,42 +162,62 @@ if st.button("📈 Predict & Log Pick"):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "Timestamp",
-                "Player",
-                "Team",
-                "Line",
-                "Pick",
-                "ProjPts",
-                "ProbOver",
-                "Edge",
-                "Result"
+                "Timestamp","Player","Team","Line","Pick",
+                "ProjPts","ProbOver","Edge","ActualPts","Result"
             ])
-
         writer.writerow([
             datetime.now().isoformat(),
             f"{player['first_name']} {player['last_name']}",
             team_choice,
             line,
             pick_side,
-            round(mean, 2),
-            round(prob_over, 3),
-            round(edge, 2),
+            round(mean,2),
+            round(prob_over,3),
+            round(edge,2),
+            "",
             ""
         ])
 
-    st.success("✅ Pick logged successfully")
+    st.success("Pick logged")
 
 # ------------------------
-# 📊 RESULTS TABLE
+# 📊 RESULTS + ACTUAL ENTRY
 # ------------------------
 st.divider()
-st.header("📊 Results Log")
+st.header("📊 Results & Actuals")
 
 if os.path.isfile("results_log.csv"):
-    with open("results_log.csv", "r") as f:
-        st.dataframe(list(csv.DictReader(f)))
-else:
-    st.info("No picks logged yet.")
+    df = list(csv.DictReader(open("results_log.csv")))
+    st.dataframe(df)
 
+    idx = st.number_input("Row # to update", min_value=0, step=1)
+    actual_pts = st.number_input("Actual Points", step=1)
 
+    if st.button("✅ Update Result"):
+        df[idx]["ActualPts"] = actual_pts
+        pick = df[idx]["Pick"]
+        line = float(df[idx]["Line"])
+        df[idx]["Result"] = "Win" if (
+            (pick == "Over" and actual_pts > line) or
+            (pick == "Under" and actual_pts < line)
+        ) else "Loss"
 
+        with open("results_log.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=df[0].keys())
+            writer.writeheader()
+            writer.writerows(df)
+
+        st.success("Result updated")
+
+# ------------------------
+# 🤖 ML RETRAIN
+# ------------------------
+st.divider()
+st.header("🤖 Machine Learning")
+
+if st.button("🔁 Retrain Model"):
+    try:
+        subprocess.run(["python", "ml/train_model.py"], check=True)
+        st.success("Model retrained successfully")
+    except:
+        st.error("Training failed (need more data)")
