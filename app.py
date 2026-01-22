@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 import math
-from datetime import date
+from datetime import date, timedelta
 
 # ------------------------
 # Password protection
@@ -16,20 +16,16 @@ if password != PASSWORD:
     st.stop()
 
 # ------------------------
-# Safe API helper (PREVENTS JSON ERRORS)
+# Safe API helper
 # ------------------------
 def safe_get_json(url):
     try:
         r = requests.get(url, timeout=10)
-
         if r.status_code != 200:
             return None
-
         if "application/json" not in r.headers.get("Content-Type", ""):
             return None
-
         return r.json()
-
     except Exception:
         return None
 
@@ -39,29 +35,36 @@ def safe_get_json(url):
 st.set_page_config(page_title="NBA Player Props AI", layout="centered")
 
 st.title("🏀 NBA Player Props AI")
-st.subheader("Today’s Games – Points Projection")
+st.subheader("NBA Points Props – Smart Projections")
 
 st.divider()
 
 # ------------------------
-# Load today's NBA games
+# Load games with fallback
 # ------------------------
 @st.cache_data(ttl=1800)
-def get_games():
-    today = date.today().isoformat()
-    url = f"https://www.balldontlie.io/api/v1/games?dates[]={today}"
+def get_games_with_fallback():
+    dates = [
+        date.today(),
+        date.today() + timedelta(days=1),
+        date.today() - timedelta(days=1),
+    ]
 
-    data = safe_get_json(url)
-    if not data or "data" not in data:
-        return []
+    for d in dates:
+        url = f"https://www.balldontlie.io/api/v1/games?dates[]={d.isoformat()}"
+        data = safe_get_json(url)
+        if data and "data" in data and data["data"]:
+            return data["data"], d
 
-    return data["data"]
+    return [], None
 
-games = get_games()
+games, used_date = get_games_with_fallback()
 
 if not games:
-    st.warning("No NBA games today.")
+    st.warning("NBA schedule unavailable.")
     st.stop()
+
+st.caption(f"Games for: {used_date.isoformat()}")
 
 game = st.selectbox(
     "Select Game",
@@ -70,16 +73,14 @@ game = st.selectbox(
 )
 
 # ------------------------
-# Load players
+# Players
 # ------------------------
 @st.cache_data(ttl=1800)
 def get_players(team_id):
     url = f"https://www.balldontlie.io/api/v1/players?team_ids[]={team_id}&per_page=25"
-
     data = safe_get_json(url)
     if not data or "data" not in data:
         return []
-
     return data["data"]
 
 team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
@@ -94,22 +95,21 @@ player = st.selectbox(
 )
 
 # ------------------------
-# Pull recent player stats
+# Player recent stats
 # ------------------------
 @st.cache_data(ttl=1800)
 def get_recent_stats(player_id, games=10):
     url = f"https://www.balldontlie.io/api/v1/stats?player_ids[]={player_id}&per_page={games}"
-
     data = safe_get_json(url)
+
     if not data or "data" not in data or len(data["data"]) < 3:
-        return 32, 15, 5, 6  # safe fallback
+        return 32, 15, 5, 6
 
     minutes, shots, fta, points = [], [], [], []
 
     for g in data["data"]:
         try:
-            min_played = int(g["min"].split(":")[0])
-            minutes.append(min_played)
+            minutes.append(int(g["min"].split(":")[0]))
             shots.append(g["fga"])
             fta.append(g["fta"])
             points.append(g["pts"])
@@ -130,6 +130,21 @@ def get_recent_stats(player_id, games=10):
     return avg_min, avg_shots, avg_fta, std_dev
 
 # ------------------------
+# Matchup adjustments (NEW)
+# ------------------------
+def matchup_modifier(game, team_choice):
+    # Pace proxy (league avg ≈ 100)
+    pace = 1.03 if game["home_team_score"] is None else 1.00
+
+    # Defense proxy (simple & conservative)
+    defense = 0.97 if team_choice == "Away" else 1.00
+
+    # Home court
+    home = 1.03 if team_choice == "Home" else 0.97
+
+    return pace * defense * home
+
+# ------------------------
 # Sportsbook input
 # ------------------------
 line = st.number_input("Sportsbook Line (Points)", step=0.5, value=20.5)
@@ -140,7 +155,10 @@ line = st.number_input("Sportsbook Line (Points)", step=0.5, value=20.5)
 if st.button("📈 Predict"):
     minutes, shots, fta, std = get_recent_stats(player["id"])
 
-    mean = minutes * 0.75 + shots * 1.9 + fta * 0.8
+    base_mean = minutes * 0.75 + shots * 1.9 + fta * 0.8
+    adj = matchup_modifier(game, team_choice)
+
+    mean = base_mean * adj
     z = (line - mean) / std
     prob_over = 0.5 * (1 - math.erf(z / math.sqrt(2)))
 
@@ -157,3 +175,4 @@ if st.button("📈 Predict"):
         st.success("✅ BET SIGNAL")
     else:
         st.warning("⚠️ No Bet")
+
