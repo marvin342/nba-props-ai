@@ -1,7 +1,9 @@
 import streamlit as st
 import requests
 import math
-from datetime import date, timedelta
+import csv
+import os
+from datetime import date, timedelta, datetime
 
 # ------------------------
 # Password protection
@@ -131,7 +133,7 @@ def matchup_modifier(team_choice):
     return pace * defense * home
 
 # ------------------------
-# 🔥 TOP EDGES TODAY (NEW)
+# 🔥 TOP EDGES TODAY
 # ------------------------
 st.divider()
 st.header("🔥 Top Edges Today")
@@ -157,11 +159,10 @@ for team, players in [("Home", home_players), ("Away", away_players)]:
         })
 
 edges = sorted(edges, key=lambda x: x["Edge %"], reverse=True)[:5]
-
 st.table(edges)
 
 # ------------------------
-# MANUAL PLAYER MODE
+# 🎯 MANUAL PLAYER CHECK + RESULTS LOGGING
 # ------------------------
 st.divider()
 st.header("🎯 Manual Player Check")
@@ -176,8 +177,9 @@ player = st.selectbox(
 )
 
 line = st.number_input("Sportsbook Line (Points)", step=0.5, value=20.5)
+pick_side = st.radio("Pick", ["Over", "Under"], horizontal=True)
 
-if st.button("📈 Predict"):
+if st.button("📈 Predict & Log Pick"):
     mins, shots, fta, std = get_recent_stats(player["id"])
     mean = (mins * 0.75 + shots * 1.9 + fta * 0.8) * matchup_modifier(team_choice)
 
@@ -189,9 +191,49 @@ if st.button("📈 Predict"):
     st.metric("Over Probability", f"{prob_over*100:.1f}%")
     st.metric("Model Edge", f"{edge:.2f}%")
 
-    if edge >= 6:
-        st.success("✅ BET SIGNAL")
-    else:
-        st.warning("⚠️ No Bet")
+    log_file = "results_log.csv"
+    file_exists = os.path.isfile(log_file)
+
+    with open(log_file, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow([
+                "Timestamp",
+                "Player",
+                "Team",
+                "Line",
+                "Pick",
+                "ProjPts",
+                "ProbOver",
+                "Edge",
+                "Result"
+            ])
+
+        writer.writerow([
+            datetime.now().isoformat(),
+            f"{player['first_name']} {player['last_name']}",
+            team_choice,
+            line,
+            pick_side,
+            round(mean, 2),
+            round(prob_over, 3),
+            round(edge, 2),
+            ""
+        ])
+
+    st.success("✅ Pick logged successfully")
+
+# ------------------------
+# 📊 RESULTS TABLE
+# ------------------------
+st.divider()
+st.header("📊 Results Log")
+
+if os.path.isfile("results_log.csv"):
+    with open("results_log.csv", "r") as f:
+        st.dataframe(list(csv.DictReader(f)))
+else:
+    st.info("No picks logged yet.")
+
 
 
