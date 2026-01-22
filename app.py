@@ -4,6 +4,7 @@ import math
 import csv
 import os
 import subprocess
+import pandas as pd
 from datetime import date, timedelta, datetime
 
 # ------------------------
@@ -187,26 +188,24 @@ st.divider()
 st.header("📊 Results & Actuals")
 
 if os.path.isfile("results_log.csv"):
-    df = list(csv.DictReader(open("results_log.csv")))
+    df = pd.read_csv("results_log.csv")
     st.dataframe(df)
 
-    idx = st.number_input("Row # to update", min_value=0, step=1)
+    idx = st.number_input("Row # to update", min_value=0, max_value=len(df)-1, step=1)
     actual_pts = st.number_input("Actual Points", step=1)
 
     if st.button("✅ Update Result"):
-        df[idx]["ActualPts"] = actual_pts
-        pick = df[idx]["Pick"]
-        line = float(df[idx]["Line"])
-        df[idx]["Result"] = "Win" if (
-            (pick == "Over" and actual_pts > line) or
-            (pick == "Under" and actual_pts < line)
-        ) else "Loss"
+        df.at[idx, "ActualPts"] = actual_pts
+        pick = df.at[idx, "Pick"]
+        line_val = float(df.at[idx, "Line"])
 
-        with open("results_log.csv", "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=df[0].keys())
-            writer.writeheader()
-            writer.writerows(df)
+        df.at[idx, "Result"] = (
+            "Win" if (pick == "Over" and actual_pts > line_val) or
+                     (pick == "Under" and actual_pts < line_val)
+            else "Loss"
+        )
 
+        df.to_csv("results_log.csv", index=False)
         st.success("Result updated")
 
 # ------------------------
@@ -221,3 +220,39 @@ if st.button("🔁 Retrain Model"):
         st.success("Model retrained successfully")
     except:
         st.error("Training failed (need more data)")
+
+# ------------------------
+# 📈 PERFORMANCE DASHBOARD (NEW)
+# ------------------------
+st.divider()
+st.header("📈 Performance Dashboard")
+
+if os.path.isfile("results_log.csv"):
+    df_perf = pd.read_csv("results_log.csv")
+    df_perf = df_perf[df_perf["Result"].isin(["Win", "Loss"])]
+
+    if len(df_perf) == 0:
+        st.info("No completed bets yet.")
+    else:
+        total = len(df_perf)
+        wins = (df_perf["Result"] == "Win").sum()
+        losses = total - wins
+        win_rate = wins / total * 100
+        units = wins * 0.91 - losses
+
+        avg_edge = df_perf["Edge"].mean()
+        avg_edge_win = df_perf[df_perf["Result"] == "Win"]["Edge"].mean()
+        avg_edge_loss = df_perf[df_perf["Result"] == "Loss"]["Edge"].mean()
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Bets", total)
+        c2.metric("Win Rate", f"{win_rate:.1f}%")
+        c3.metric("Units", f"{units:.2f}")
+        c4.metric("Avg Edge", f"{avg_edge:.2f}%")
+
+        st.subheader("Edge Validation")
+        st.write(f"Avg Edge (Wins): **{avg_edge_win:.2f}%**")
+        st.write(f"Avg Edge (Losses): **{avg_edge_loss:.2f}%**")
+        st.caption("Wins should have higher average edge than losses.")
+else:
+    st.info("No results logged yet.")
