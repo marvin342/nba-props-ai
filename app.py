@@ -30,7 +30,7 @@ def safe_get_json(url):
         if "application/json" not in r.headers.get("Content-Type", ""):
             return None
         return r.json()
-    except Exception:
+    except:
         return None
 
 # ------------------------
@@ -44,16 +44,31 @@ st.subheader("NBA Points Props – Smart Projections")
 st.divider()
 
 # ------------------------
-# TIMEZONE-SAFE GAME LOADER
+# GAME WINDOW SELECTOR (NEW)
+# ------------------------
+window = st.radio(
+    "Game Window",
+    ["Yesterday", "Today", "Upcoming"],
+    horizontal=True
+)
+
+if window == "Yesterday":
+    offsets = [-1]
+elif window == "Today":
+    offsets = [0]
+else:
+    offsets = [1, 2]
+
+# ------------------------
+# LOAD GAMES
 # ------------------------
 @st.cache_data(ttl=1800)
-def get_games_window():
+def load_games(offsets):
     games = []
-    seen_ids = set()
+    seen = set()
 
-    # Query a safe window: yesterday → +2 days
-    for offset in [-1, 0, 1, 2]:
-        d = date.today() + timedelta(days=offset)
+    for off in offsets:
+        d = date.today() + timedelta(days=off)
         url = f"https://www.balldontlie.io/api/v1/games?dates[]={d.isoformat()}"
         data = safe_get_json(url)
 
@@ -61,21 +76,19 @@ def get_games_window():
             continue
 
         for g in data["data"]:
-            if g["id"] not in seen_ids:
+            if g["id"] not in seen:
                 games.append(g)
-                seen_ids.add(g["id"])
+                seen.add(g["id"])
 
     return games
 
-games = get_games_window()
+games = load_games(offsets)
 
 if not games:
-    st.warning(
-        "NBA schedule not available yet from the API. "
-        "This usually resolves later in the day."
+    st.info(
+        "No games found for this window yet. "
+        "This is normal early in the day or before schedules are posted."
     )
-else:
-    st.caption("Showing all upcoming / recent NBA games (timezone-safe)")
 
 # ------------------------
 # GAME + PLAYER SECTION
@@ -137,7 +150,7 @@ if games:
         return pace * defense * home
 
     # ------------------------
-    # 🎯 MANUAL PICK + LOGGING
+    # 🎯 MANUAL PICK
     # ------------------------
     st.divider()
     st.header("🎯 Manual Player Pick")
@@ -162,11 +175,11 @@ if games:
         edge = (prob_over - 0.524) * 100
 
         log_file = "results_log.csv"
-        file_exists = os.path.isfile(log_file)
+        exists = os.path.isfile(log_file)
 
         with open(log_file, "a", newline="") as f:
             writer = csv.writer(f)
-            if not file_exists:
+            if not exists:
                 writer.writerow([
                     "Timestamp","Player","Team","Line","Pick",
                     "ProjPts","ProbOver","Edge","ActualPts","Result"
@@ -187,7 +200,7 @@ if games:
         st.success("Pick logged")
 
 # ------------------------
-# 📊 RESULTS + ACTUAL ENTRY
+# 📊 RESULTS & ACTUALS
 # ------------------------
 st.divider()
 st.header("📊 Results & Actuals")
@@ -214,7 +227,7 @@ if os.path.isfile("results_log.csv"):
         st.success("Result updated")
 
 # ------------------------
-# 🤖 ML RETRAIN
+# 🤖 ML
 # ------------------------
 st.divider()
 st.header("🤖 Machine Learning")
@@ -222,12 +235,12 @@ st.header("🤖 Machine Learning")
 if st.button("🔁 Retrain Model"):
     try:
         subprocess.run(["python", "ml/train_model.py"], check=True)
-        st.success("Model retrained successfully")
+        st.success("Model retrained")
     except:
         st.error("Training failed (need more data)")
 
 # ------------------------
-# 📈 PERFORMANCE DASHBOARD
+# 📈 PERFORMANCE
 # ------------------------
 st.divider()
 st.header("📈 Performance Dashboard")
@@ -236,28 +249,12 @@ if os.path.isfile("results_log.csv"):
     df_perf = pd.read_csv("results_log.csv")
     df_perf = df_perf[df_perf["Result"].isin(["Win", "Loss"])]
 
-    if len(df_perf) == 0:
-        st.info("No completed bets yet.")
-    else:
-        total = len(df_perf)
+    if len(df_perf):
         wins = (df_perf["Result"] == "Win").sum()
-        losses = total - wins
-        win_rate = wins / total * 100
-        units = wins * 0.91 - losses
+        total = len(df_perf)
+        units = wins * 0.91 - (total - wins)
 
-        avg_edge = df_perf["Edge"].mean()
-        avg_edge_win = df_perf[df_perf["Result"] == "Win"]["Edge"].mean()
-        avg_edge_loss = df_perf[df_perf["Result"] == "Loss"]["Edge"].mean()
-
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Bets", total)
-        c2.metric("Win Rate", f"{win_rate:.1f}%")
+        c2.metric("Win Rate", f"{wins/total*100:.1f}%")
         c3.metric("Units", f"{units:.2f}")
-        c4.metric("Avg Edge", f"{avg_edge:.2f}%")
-
-        st.subheader("Edge Validation")
-        st.write(f"Avg Edge (Wins): **{avg_edge_win:.2f}%**")
-        st.write(f"Avg Edge (Losses): **{avg_edge_loss:.2f}%**")
-        st.caption("Wins should have higher average edge than losses.")
-else:
-    st.info("No results logged yet.")
