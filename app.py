@@ -20,25 +20,24 @@ if password != PASSWORD:
     st.stop()
 
 # ------------------------
-# API CONFIG (FIXED)
+# API KEY (from Streamlit Secrets)
 # ------------------------
 API_KEY = st.secrets["BALLDONTLIE_API_KEY"]
-BASE_URL = "https://api.balldontlie.io/v2"
-
-HEADERS = {
-    "Authorization": API_KEY
-}
 
 # ------------------------
 # Safe API helper (FIXED)
 # ------------------------
 def safe_get_json(url):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(
+            url,
+            headers={"Authorization": API_KEY},
+            timeout=10
+        )
         if r.status_code != 200:
             return None
         return r.json()
-    except:
+    except Exception:
         return None
 
 # ------------------------
@@ -48,11 +47,10 @@ st.set_page_config(page_title="NBA Player Props AI", layout="centered")
 
 st.title("🏀 NBA Player Props AI")
 st.subheader("NBA Points Props – Smart Projections")
-
 st.divider()
 
 # ------------------------
-# GAME WINDOW SELECTOR
+# GAME WINDOW
 # ------------------------
 window = st.radio(
     "Game Window",
@@ -68,7 +66,7 @@ else:
     offsets = [1, 2]
 
 # ------------------------
-# LOAD GAMES (FIXED v2)
+# LOAD GAMES (FIXED DOMAIN)
 # ------------------------
 @st.cache_data(ttl=1800)
 def load_games(offsets):
@@ -77,7 +75,7 @@ def load_games(offsets):
 
     for off in offsets:
         d = date.today() + timedelta(days=off)
-        url = f"{BASE_URL}/games?dates[]={d.isoformat()}&per_page=100"
+        url = f"https://api.balldontlie.io/v1/games?dates[]={d.isoformat()}"
         data = safe_get_json(url)
 
         if not data or "data" not in data:
@@ -94,8 +92,8 @@ games = load_games(offsets)
 
 if not games:
     st.info(
-        "No games found yet. "
-        "Schedules usually populate late morning / early afternoon."
+        "No games found yet. This is normal early in the day — "
+        "the API updates throughout the morning."
     )
 
 # ------------------------
@@ -113,40 +111,47 @@ if games:
 
     @st.cache_data(ttl=1800)
     def get_players(team_id):
-        url = f"{BASE_URL}/players?team_ids[]={team_id}&per_page=50"
+        url = f"https://api.balldontlie.io/v1/players?team_ids[]={team_id}&per_page=25"
         data = safe_get_json(url)
-        return data["data"] if data else []
+        return data["data"] if data and "data" in data else []
 
     home_players = get_players(game["home_team"]["id"])
     away_players = get_players(game["visitor_team"]["id"])
 
     @st.cache_data(ttl=1800)
     def get_recent_stats(player_id, games=10):
-        url = f"{BASE_URL}/stats?player_ids[]={player_id}&per_page={games}"
+        url = f"https://api.balldontlie.io/v1/stats?player_ids[]={player_id}&per_page={games}"
         data = safe_get_json(url)
 
-        if not data or len(data["data"]) < 3:
+        if not data or "data" not in data or len(data["data"]) < 3:
             return 32, 15, 5, 6
 
-        mins, shots, fta, pts = [], [], [], []
+        minutes, shots, fta, points = [], [], [], []
 
         for g in data["data"]:
             try:
-                mins.append(int(g["min"].split(":")[0]))
+                minutes.append(int(g["min"].split(":")[0]))
                 shots.append(g["fga"])
                 fta.append(g["fta"])
-                pts.append(g["pts"])
+                points.append(g["pts"])
             except:
                 continue
 
-        mean_pts = sum(pts) / len(pts)
-        variance = sum((p - mean_pts) ** 2 for p in pts) / len(pts)
-        std = max(variance ** 0.5, 4)
+        avg_min = sum(minutes) / len(minutes)
+        avg_shots = sum(shots) / len(shots)
+        avg_fta = sum(fta) / len(fta)
 
-        return sum(mins)/len(mins), sum(shots)/len(shots), sum(fta)/len(fta), std
+        mean_pts = sum(points) / len(points)
+        variance = sum((p - mean_pts) ** 2 for p in points) / len(points)
+        std_dev = max(variance ** 0.5, 4)
 
-    def matchup_modifier(team):
-        return (1.02 * (1.03 if team == "Home" else 0.97))
+        return avg_min, avg_shots, avg_fta, std_dev
+
+    def matchup_modifier(team_choice):
+        pace = 1.02
+        defense = 0.98 if team_choice == "Away" else 1.00
+        home = 1.03 if team_choice == "Home" else 0.97
+        return pace * defense * home
 
     # ------------------------
     # 🎯 MANUAL PICK
@@ -168,8 +173,7 @@ if games:
 
     if st.button("📈 Predict & Log"):
         mins, shots, fta, std = get_recent_stats(player["id"])
-        mean = (mins*0.75 + shots*1.9 + fta*0.8) * matchup_modifier(team_choice)
-
+        mean = (mins * 0.75 + shots * 1.9 + fta * 0.8) * matchup_modifier(team_choice)
         z = (line - mean) / std
         prob_over = 0.5 * (1 - math.erf(z / math.sqrt(2)))
         edge = (prob_over - 0.524) * 100
@@ -200,6 +204,44 @@ if games:
         st.success("Pick logged")
 
 # ------------------------
-# RESULTS, ML, PERFORMANCE
+# 📊 RESULTS & ACTUALS
 # ------------------------
-# (unchanged – your logic here is already correct)
+st.divider()
+st.header("📊 Results & Actuals")
+
+if os.path.isfile("results_log.csv"):
+    df = pd.read_csv("results_log.csv")
+    st.dataframe(df)
+
+# ------------------------
+# 🤖 ML
+# ------------------------
+st.divider()
+st.header("🤖 Machine Learning")
+
+if st.button("🔁 Retrain Model"):
+    try:
+        subprocess.run(["python", "ml/train_model.py"], check=True)
+        st.success("Model retrained")
+    except:
+        st.error("Training failed (need more data)")
+
+# ------------------------
+# 📈 PERFORMANCE
+# ------------------------
+st.divider()
+st.header("📈 Performance Dashboard")
+
+if os.path.isfile("results_log.csv"):
+    df_perf = pd.read_csv("results_log.csv")
+    df_perf = df_perf[df_perf["Result"].isin(["Win", "Loss"])]
+
+    if len(df_perf):
+        wins = (df_perf["Result"] == "Win").sum()
+        total = len(df_perf)
+        units = wins * 0.91 - (total - wins)
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Bets", total)
+        c2.metric("Win Rate", f"{wins/total*100:.1f}%")
+        c3.metric("Units", f"{units:.2f}")
