@@ -5,7 +5,7 @@ import csv
 import os
 import subprocess
 import pandas as pd
-from datetime import date, timedelta, datetime
+from datetime import datetime, timedelta
 
 # ------------------------
 # Password protection
@@ -57,6 +57,8 @@ window = st.radio(
     horizontal=True
 )
 
+TODAY_UTC = datetime.utcnow().date()
+
 offsets = (
     [-1] if window == "Yesterday"
     else [0] if window == "Today"
@@ -64,7 +66,7 @@ offsets = (
 )
 
 # ------------------------
-# LOAD GAMES
+# LOAD GAMES (UTC SAFE)
 # ------------------------
 @st.cache_data(ttl=1800)
 def load_games(offsets):
@@ -72,7 +74,7 @@ def load_games(offsets):
     seen = set()
 
     for off in offsets:
-        d = date.today() + timedelta(days=off)
+        d = TODAY_UTC + timedelta(days=off)
         url = f"https://api.balldontlie.io/v1/games?dates[]={d.isoformat()}"
         data = safe_get_json(url)
 
@@ -89,7 +91,7 @@ def load_games(offsets):
 games = load_games(offsets)
 
 if not games:
-    st.info("No games available yet. Try again later.")
+    st.info("No games available yet.")
     st.stop()
 
 # ------------------------
@@ -106,39 +108,44 @@ game = st.selectbox(
 )
 
 # ------------------------
-# PLAYERS FROM GAME (FINAL FIX)
+# PLAYER LOADER (FIXED FOR ALL WINDOWS)
 # ------------------------
-@st.cache_data(ttl=1800)
-def get_players_from_game(game_id, team_id):
-    url = f"https://api.balldontlie.io/v1/stats?game_ids[]={game_id}&per_page=100"
-    data = safe_get_json(url)
-
-    if not data or "data" not in data:
-        return []
-
+@st.cache_data(ttl=900)
+def get_players_for_team(team_id, window):
     players = {}
 
-    for row in data["data"]:
-        p = row.get("player")
-        t = row.get("team")
-        mins = row.get("min")
+    # 1️⃣ Always load active roster (pregame truth)
+    roster_url = (
+        "https://api.balldontlie.io/v1/players"
+        f"?team_ids[]={team_id}&active=true&per_page=100"
+    )
+    roster_data = safe_get_json(roster_url)
 
-        if not p or not t:
-            continue
-        if t["id"] != team_id:
-            continue
-        if not mins or mins == "0:00":
-            continue
+    if roster_data and roster_data.get("data"):
+        for p in roster_data["data"]:
+            players[p["id"]] = p
 
-        players[p["id"]] = p
+    # 2️⃣ Yesterday → merge stats players (postgame truth)
+    if window == "Yesterday":
+        stats_url = (
+            "https://api.balldontlie.io/v1/stats"
+            f"?team_ids[]={team_id}&per_page=100"
+        )
+        stats_data = safe_get_json(stats_url)
+
+        if stats_data and stats_data.get("data"):
+            for row in stats_data["data"]:
+                p = row.get("player")
+                if p:
+                    players[p["id"]] = p
 
     return sorted(
         players.values(),
         key=lambda p: (p["last_name"], p["first_name"])
     )
 
-home_players = get_players_from_game(game["id"], game["home_team"]["id"])
-away_players = get_players_from_game(game["id"], game["visitor_team"]["id"])
+home_players = get_players_for_team(game["home_team"]["id"], window)
+away_players = get_players_for_team(game["visitor_team"]["id"], window)
 
 # ------------------------
 # PLAYER STATS
@@ -188,7 +195,7 @@ team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
 players = home_players if team_choice == "Home" else away_players
 
 if not players:
-    st.warning("Players will populate once the game has box score data.")
+    st.warning("Roster unavailable — try another game.")
     st.stop()
 
 player = st.selectbox(
@@ -218,7 +225,7 @@ if st.button("📈 Predict & Log"):
                 "ProjPts","ProbOver","Edge","ActualPts","Result"
             ])
         writer.writerow([
-            datetime.now().isoformat(),
+            datetime.utcnow().isoformat(),
             f"{player['first_name']} {player['last_name']}",
             team_choice,
             line,
