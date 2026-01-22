@@ -64,7 +64,7 @@ offsets = (
 )
 
 # ------------------------
-# LOAD GAMES (FIXED)
+# LOAD GAMES
 # ------------------------
 @st.cache_data(ttl=1800)
 def load_games(offsets):
@@ -89,10 +89,7 @@ def load_games(offsets):
 games = load_games(offsets)
 
 if not games:
-    st.info(
-        "No games found yet. This is normal early in the day — "
-        "the API updates throughout the morning."
-    )
+    st.info("No games available yet. Try again later.")
     st.stop()
 
 # ------------------------
@@ -109,38 +106,39 @@ game = st.selectbox(
 )
 
 # ------------------------
-# ACTIVE PLAYERS (CORRECT)
+# PLAYERS FROM GAME (FINAL FIX)
 # ------------------------
 @st.cache_data(ttl=1800)
-def get_players_for_team(team_id):
-    # PRIMARY: active roster
-    roster_url = (
-        "https://api.balldontlie.io/v1/players"
-        f"?team_ids[]={team_id}&active=true&per_page=50"
-    )
-    roster_data = safe_get_json(roster_url)
+def get_players_from_game(game_id, team_id):
+    url = f"https://api.balldontlie.io/v1/stats?game_ids[]={game_id}&per_page=100"
+    data = safe_get_json(url)
 
-    if roster_data and roster_data.get("data"):
-        return roster_data["data"]
-
-    # FALLBACK: recent stats (after games)
-    stats_url = (
-        "https://api.balldontlie.io/v1/stats"
-        f"?team_ids[]={team_id}&per_page=100"
-    )
-    stats_data = safe_get_json(stats_url)
+    if not data or "data" not in data:
+        return []
 
     players = {}
-    if stats_data and stats_data.get("data"):
-        for row in stats_data["data"]:
-            p = row.get("player")
-            if p:
-                players[p["id"]] = p
 
-    return list(players.values())
+    for row in data["data"]:
+        p = row.get("player")
+        t = row.get("team")
+        mins = row.get("min")
 
-home_players = get_players_for_team(game["home_team"]["id"])
-away_players = get_players_for_team(game["visitor_team"]["id"])
+        if not p or not t:
+            continue
+        if t["id"] != team_id:
+            continue
+        if not mins or mins == "0:00":
+            continue
+
+        players[p["id"]] = p
+
+    return sorted(
+        players.values(),
+        key=lambda p: (p["last_name"], p["first_name"])
+    )
+
+home_players = get_players_from_game(game["id"], game["home_team"]["id"])
+away_players = get_players_from_game(game["id"], game["visitor_team"]["id"])
 
 # ------------------------
 # PLAYER STATS
@@ -190,7 +188,7 @@ team_choice = st.radio("Team", ["Home", "Away"], horizontal=True)
 players = home_players if team_choice == "Home" else away_players
 
 if not players:
-    st.warning("Roster not available yet — try again shortly.")
+    st.warning("Players will populate once the game has box score data.")
     st.stop()
 
 player = st.selectbox(
