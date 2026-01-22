@@ -25,7 +25,7 @@ if password != PASSWORD:
 API_KEY = st.secrets["BALLDONTLIE_API_KEY"]
 
 # ------------------------
-# Safe API helper (FIXED)
+# Safe API helper
 # ------------------------
 def safe_get_json(url):
     try:
@@ -66,7 +66,7 @@ else:
     offsets = [1, 2]
 
 # ------------------------
-# LOAD GAMES (FIXED DOMAIN)
+# LOAD GAMES (timezone-safe)
 # ------------------------
 @st.cache_data(ttl=1800)
 def load_games(offsets):
@@ -109,18 +109,41 @@ if games:
         )
     )
 
+    # ------------------------
+    # ACTIVE ROSTER (FIXED)
+    # ------------------------
     @st.cache_data(ttl=1800)
-    def get_players(team_id):
-        url = f"https://api.balldontlie.io/v1/players?team_ids[]={team_id}&per_page=25"
+    def get_active_players_for_team(team_id):
+        url = (
+            "https://api.balldontlie.io/v1/stats"
+            f"?team_ids[]={team_id}&per_page=100"
+        )
+
         data = safe_get_json(url)
-        return data["data"] if data and "data" in data else []
+        if not data or "data" not in data:
+            return []
 
-    home_players = get_players(game["home_team"]["id"])
-    away_players = get_players(game["visitor_team"]["id"])
+        players = {}
+        for row in data["data"]:
+            p = row.get("player")
+            if not p:
+                continue
+            players[p["id"]] = p  # dedupe
 
+        return list(players.values())
+
+    home_players = get_active_players_for_team(game["home_team"]["id"])
+    away_players = get_active_players_for_team(game["visitor_team"]["id"])
+
+    # ------------------------
+    # PLAYER RECENT STATS
+    # ------------------------
     @st.cache_data(ttl=1800)
     def get_recent_stats(player_id, games=10):
-        url = f"https://api.balldontlie.io/v1/stats?player_ids[]={player_id}&per_page={games}"
+        url = (
+            "https://api.balldontlie.io/v1/stats"
+            f"?player_ids[]={player_id}&per_page={games}"
+        )
         data = safe_get_json(url)
 
         if not data or "data" not in data or len(data["data"]) < 3:
@@ -204,14 +227,13 @@ if games:
         st.success("Pick logged")
 
 # ------------------------
-# 📊 RESULTS & ACTUALS
+# 📊 RESULTS
 # ------------------------
 st.divider()
 st.header("📊 Results & Actuals")
 
 if os.path.isfile("results_log.csv"):
-    df = pd.read_csv("results_log.csv")
-    st.dataframe(df)
+    st.dataframe(pd.read_csv("results_log.csv"))
 
 # ------------------------
 # 🤖 ML
