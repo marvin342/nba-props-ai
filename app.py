@@ -57,7 +57,7 @@ window = st.radio(
     horizontal=True
 )
 
-TODAY_UTC = datetime.utcnow().date()
+TODAY = datetime.utcnow().date()
 
 offsets = (
     [-1] if window == "Yesterday"
@@ -66,7 +66,7 @@ offsets = (
 )
 
 # ------------------------
-# LOAD GAMES (UTC SAFE)
+# LOAD GAMES
 # ------------------------
 @st.cache_data(ttl=1800)
 def load_games(offsets):
@@ -74,7 +74,7 @@ def load_games(offsets):
     seen = set()
 
     for off in offsets:
-        d = TODAY_UTC + timedelta(days=off)
+        d = TODAY + timedelta(days=off)
         url = f"https://api.balldontlie.io/v1/games?dates[]={d.isoformat()}"
         data = safe_get_json(url)
 
@@ -108,44 +108,62 @@ game = st.selectbox(
 )
 
 # ------------------------
-# PLAYER LOADER (FIXED FOR ALL WINDOWS)
+# ✅ CORRECT PLAYER LOADER (FIXED)
 # ------------------------
 @st.cache_data(ttl=900)
-def get_players_for_team(team_id, window):
+def get_players_for_team(team_id):
+    """
+    Returns only:
+    - Active players
+    - Correct current team
+    - 2025–26 season only
+    - Works BEFORE games start
+    """
+
     players = {}
 
-    # 1️⃣ Always load active roster (pregame truth)
-    roster_url = (
-        "https://api.balldontlie.io/v1/players"
-        f"?team_ids[]={team_id}&active=true&per_page=100"
-    )
+    # 1️⃣ Get all active players (league-wide)
+    roster_url = "https://api.balldontlie.io/v1/players?active=true&per_page=100"
     roster_data = safe_get_json(roster_url)
 
-    if roster_data and roster_data.get("data"):
-        for p in roster_data["data"]:
-            players[p["id"]] = p
+    if not roster_data or "data" not in roster_data:
+        return []
 
-    # 2️⃣ Yesterday → merge stats players (postgame truth)
-    if window == "Yesterday":
+    # 2️⃣ Verify team via most recent game
+    for p in roster_data["data"]:
         stats_url = (
             "https://api.balldontlie.io/v1/stats"
-            f"?team_ids[]={team_id}&per_page=100"
+            f"?player_ids[]={p['id']}&per_page=5"
         )
         stats_data = safe_get_json(stats_url)
 
-        if stats_data and stats_data.get("data"):
-            for row in stats_data["data"]:
-                p = row.get("player")
-                if p:
-                    players[p["id"]] = p
+        if not stats_data or not stats_data.get("data"):
+            continue
+
+        recent = stats_data["data"][0]
+        team = recent.get("team")
+        game = recent.get("game")
+
+        if not team or not game:
+            continue
+
+        # Must be CURRENT TEAM
+        if team["id"] != team_id:
+            continue
+
+        # Must be CURRENT SEASON (2025–26)
+        if int(game["date"][:4]) < 2025:
+            continue
+
+        players[p["id"]] = p
 
     return sorted(
         players.values(),
         key=lambda p: (p["last_name"], p["first_name"])
     )
 
-home_players = get_players_for_team(game["home_team"]["id"], window)
-away_players = get_players_for_team(game["visitor_team"]["id"], window)
+home_players = get_players_for_team(game["home_team"]["id"])
+away_players = get_players_for_team(game["visitor_team"]["id"])
 
 # ------------------------
 # PLAYER STATS
