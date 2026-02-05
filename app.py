@@ -12,11 +12,11 @@ if password != PASSWORD:
     st.warning("Locked.")
     st.stop()
 
-# Heartbeat: Updates every 20 mins to keep your schedule fresh and save credits
+# Heartbeat: Updates every 20 mins to keep your schedule fresh forever
 st_autorefresh(interval=1200000, key="nba_master_sync") 
 
 # --- 2. CONFIG ---
-st.set_page_config(page_title="NBA MAX STRENGTH", layout="wide", page_icon="🏀")
+st.set_page_config(page_title="NBA MASTER COMMAND", layout="wide", page_icon="🏀")
 API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
 
 # --- 3. DATA ENGINES ---
@@ -31,7 +31,6 @@ def get_all_nba_games(api_key):
 
 @st.cache_data(ttl=1200)
 def get_extended_props(api_key, event_id):
-    # Pulls Points, Rebounds, and Assists
     url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets=player_points,player_rebounds,player_assists&oddsFormat=decimal"
     try:
         r = requests.get(url)
@@ -39,16 +38,20 @@ def get_extended_props(api_key, event_id):
     except:
         return None
 
-# --- 4. DISPLAY ---
-st.title("🏀 NBA MAX STRENGTH: BETTING COMMAND")
-search_query = st.text_input("🔍 Search Team or Matchup", "").lower()
+# --- 4. MAIN INTERFACE ---
+st.title("🏀 NBA MASTER COMMAND CENTER")
+search_query = st.text_input("🔍 Search Team (e.g., 'Lakers', 'Knicks')", "").lower()
 
 nba_data, credits_left = get_all_nba_games(API_KEY)
 st.sidebar.metric("API Credits Left", credits_left)
 
 if nba_data:
+    # Sort: Keeps Today first, then tomorrow, then next week
     nba_data = sorted(nba_data, key=lambda x: x['commence_time'])
+    
+    # Filter by Search
     filtered_data = [g for g in nba_data if search_query in g['home_team'].lower() or search_query in g['away_team'].lower()]
+    st.write(f"📡 Found {len(filtered_data)} games matching your search.")
 
     for game in filtered_data:
         home, away = game['home_team'], game['away_team']
@@ -56,52 +59,39 @@ if nba_data:
         commence_time = pd.to_datetime(game['commence_time']).strftime('%m/%d | %I:%M %p')
         
         try:
-            # --- GAME TOTALS ANALYSIS ---
+            # --- GAME TOTALS (OVER/UNDER) ---
             bookie = game['bookmakers'][0]
-            mkt = next(m for m in bookie['markets'] if m['key'] == 'totals')
-            over = next(o for o in mkt['outcomes'] if o['name'] == 'Over')
-            under = next(u for u in mkt['outcomes'] if u['name'] == 'Under')
+            market = next(m for m in bookie['markets'] if m['key'] == 'totals')
+            over = next(o for o in market['outcomes'] if o['name'] == 'Over')
+            under = next(u for u in market['outcomes'] if u['name'] == 'Under')
             
-            # STRENGTH LOGIC: We flag extreme outliers
-            is_trusted_over = (over['point'] > 234) or (over['price'] < 1.80)
-            is_trusted_under = (over['point'] < 216) or (under['price'] < 1.80)
+            # TRUSTED LOGIC (Original High-Value Metrics)
+            is_trusted_over = over['point'] > 232 or over['price'] < 1.85
+            is_trusted_under = over['point'] < 218 or under['price'] < 1.85
             
-            status_icon = "💣" if (is_trusted_over or is_trusted_under) else "📅"
-            with st.expander(f"{status_icon} {away} @ {home} ({commence_time})", expanded=is_trusted_over or is_trusted_under):
+            icon = "🔥" if (is_trusted_over or is_trusted_under) else "📅"
+            header = f"{icon} {away} @ {home} ({commence_time})"
+            
+            with st.expander(header, expanded=is_trusted_over or is_trusted_under):
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Current Line", f"{over['point']}")
-                c2.metric("Over Price", f"{over['price']}", delta="MAX STRENGTH OVER" if is_trusted_over else None)
-                c3.metric("Under Price", f"{under['price']}", delta="MAX STRENGTH UNDER" if is_trusted_under else None, delta_color="inverse")
+                c1.metric("Game Line", f"{over['point']}")
+                c2.metric("Over Odds", f"{over['price']}", delta="TRUSTED" if is_trusted_over else None)
+                c3.metric("Under Odds", f"{under['price']}", delta="TRUSTED" if is_trusted_under else None, delta_color="inverse")
                 
-                # --- MAX STRENGTH PLAYER PROPS ---
+                # --- PLAYER PROPS (OVER/UNDER) ---
                 st.markdown("---")
-                if st.button(f"🚀 RUN MAX ANALYSIS: {away} vs {home}", key=f"btn_{event_id}"):
+                if st.button(f"Scan All Props: {away} vs {home}", key=f"btn_{event_id}"):
                     prop_data = get_extended_props(API_KEY, event_id)
                     if prop_data and 'bookmakers' in prop_data:
-                        st.subheader("🎯 High-Confidence Prop Targets")
                         for b in prop_data['bookmakers']:
                             for mkt in b['markets']:
-                                label = mkt['key'].replace('player_', '').replace('_', ' ').upper()
-                                
-                                # Process outcomes
-                                players = {}
+                                label = mkt['key'].replace('player_', '').replace('_', ' ').title()
+                                st.write(f"**📍 {label}**")
                                 for out in mkt['outcomes']:
-                                    name = out['description']
-                                    if name not in players: players[name] = {}
-                                    players[name][out['name']] = {'point': out['point'], 'price': out['price']}
-                                
-                                for p_name, p_data in players.items():
-                                    if 'Over' in p_data and 'Under' in p_data:
-                                        o_p, u_p = p_data['Over']['price'], p_data['Under']['price']
-                                        line = p_data['Over']['point']
-                                        
-                                        # MAX STRENGTH THRESHOLD: 1.72 or lower indicates massive bookmaker liability
-                                        if o_p <= 1.72:
-                                            st.success(f"🔥 **STAKE OVER**: {p_name} {label} ({line}) - Odds: {o_p}")
-                                        elif u_p <= 1.72:
-                                            st.error(f"❄️ **STAKE UNDER**: {p_name} {label} ({line}) - Odds: {u_p}")
+                                    p_icon = "🟢" if out['name'] == 'Over' else "🔴"
+                                    st.write(f"{p_icon} {out['description']}: {out['name']} {out['point']} @ {out['price']}")
                     else:
-                        st.info("Market not yet mature. Check closer to tip-off for max strength signals.")
+                        st.info("Props release closer to tip-off.")
         except:
             continue
 else:
