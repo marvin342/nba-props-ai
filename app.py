@@ -8,99 +8,85 @@ from streamlit_autorefresh import st_autorefresh
 PASSWORD = "benja123"
 st.sidebar.title("🏀 NBA PRIVATE ACCESS")
 password = st.sidebar.text_input("Password", type="password")
-
 if password != PASSWORD:
-    st.warning("Locked. Enter password to view NBA data.")
+    st.warning("Locked.")
     st.stop()
 
-# Auto-refresh every 20 mins to stay under the 500-request monthly limit
+# 20-min refresh to keep data current while saving your 500 credits
 st_autorefresh(interval=1200000, key="nba_master_sync") 
 
 # --- 2. CONFIG ---
 st.set_page_config(page_title="NBA MASTER COMMAND", layout="wide", page_icon="🏀")
 API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
 
-# --- 3. DATA FETCHING ---
+# --- 3. DATA ENGINES ---
 @st.cache_data(ttl=1200)
-def get_nba_data(api_key):
-    # This pulls ALL upcoming/live games (Today + Next 7 days)
+def get_all_nba_games(api_key):
+    # This pulls ALL upcoming games for the next week
     url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey={api_key}&regions=us&markets=totals&oddsFormat=decimal"
     try:
         r = requests.get(url)
-        if r.status_code == 200:
-            return r.json(), r.headers.get('x-requests-remaining', 'N/A')
-        return None, f"Error {r.status_code}"
-    except Exception as e:
-        return None, str(e)
+        return r.json(), r.headers.get('x-requests-remaining', 'N/A')
+    except:
+        return None, "Error"
 
 @st.cache_data(ttl=1200)
-def get_full_props(api_key, event_id):
-    # Fetches Points, Rebounds, Assists (Over/Under)
-    markets = "player_points,player_rebounds,player_assists"
-    url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets}&oddsFormat=decimal"
+def get_extended_props(api_key, event_id):
+    # Pulls Points, Rebounds, and Assists
+    url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets=player_points,player_rebounds,player_assists&oddsFormat=decimal"
     try:
         r = requests.get(url)
-        return r.json() if r.status_code == 200 else None
+        return r.json()
     except:
         return None
 
-# --- 4. MAIN INTERFACE ---
-st.title("🏀 NBA MASTER COMMAND CENTER")
-st.markdown(f"**Scanner Active:** {pd.Timestamp.now().strftime('%B %d, %Y')}")
-
-nba_data, credits_left = get_nba_data(API_KEY)
+# --- 4. DISPLAY ---
+st.title("🏀 NBA MASTER COMMAND: FULL SCHEDULE")
+nba_data, credits_left = get_all_nba_games(API_KEY)
 st.sidebar.metric("API Credits Left", credits_left)
 
 if nba_data:
-    # Sort games by time (Soonest first)
+    # Always sort by time so today is first, then tomorrow, then next week
     nba_data = sorted(nba_data, key=lambda x: x['commence_time'])
-    st.write(f"📡 Found {len(nba_data)} games on the schedule.")
-
+    
     for game in nba_data:
         home, away = game['home_team'], game['away_team']
         event_id = game['id']
-        commence_dt = pd.to_datetime(game['commence_time'])
-        display_time = commence_dt.strftime('%m/%d | %I:%M %p')
+        commence_time = pd.to_datetime(game['commence_time']).strftime('%m/%d | %I:%M %p')
         
         try:
-            # --- GAME TOTALS LOGIC ---
+            # --- GAME TOTALS (OVER/UNDER) ---
             bookie = game['bookmakers'][0]
             market = next(m for m in bookie['markets'] if m['key'] == 'totals')
-            over_out = next(o for o in market['outcomes'] if o['name'] == 'Over')
-            under_out = next(o for o in market['outcomes'] if o['name'] == 'Under')
+            over = next(o for o in market['outcomes'] if o['name'] == 'Over')
+            under = next(u for u in market['outcomes'] if u['name'] == 'Under')
             
-            line = over_out['point']
-            o_price, u_price = over_out['price'], under_out['price']
+            # TRUSTED LOGIC (Keep original + Add Under)
+            is_trusted_over = over['point'] > 232 or over['price'] < 1.85
+            is_trusted_under = over['point'] < 218 or under['price'] < 1.85
             
-            # --- TRUSTED LOGIC ---
-            # Flagging high confidence for Over or Under
-            is_over = line > 232 or o_price < 1.85
-            is_under = line < 218 or u_price < 1.85
-            
-            status_icon = "🔥" if (is_over or is_under) else "📅"
-            header = f"{status_icon} {away} @ {home} ({display_time})"
-            
-            with st.expander(header, expanded=is_over or is_under):
+            icon = "🔥" if (is_trusted_over or is_trusted_under) else "📅"
+            with st.expander(f"{icon} {away} @ {home} ({commence_time})", expanded=is_trusted_over or is_trusted_under):
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Game Line", f"{line}")
-                c2.metric("Over Odds", f"{o_price}", delta="TRUSTED OVER" if is_over else None)
-                c3.metric("Under Odds", f"{u_price}", delta="TRUSTED UNDER" if is_under else None, delta_color="inverse")
+                c1.metric("Game Line", f"{over['point']}")
+                c2.metric("Over Odds", f"{over['price']}", delta="TRUSTED" if is_trusted_over else None)
+                c3.metric("Under Odds", f"{under['price']}", delta="TRUSTED" if is_trusted_under else None, delta_color="inverse")
                 
-                # --- PLAYER PROPS ---
+                # --- PLAYER PROPS (OVER/UNDER) ---
                 st.markdown("---")
-                if st.button(f"Scan Player Props: {away} @ {home}", key=f"btn_{event_id}"):
-                    props = get_full_props(API_KEY, event_id)
-                    if props and 'bookmakers' in props:
-                        for b in props['bookmakers']:
+                if st.button(f"Scan All Props: {away} vs {home}", key=f"btn_{event_id}"):
+                    prop_data = get_extended_props(API_KEY, event_id)
+                    if prop_data and 'bookmakers' in prop_data:
+                        for b in prop_data['bookmakers']:
                             for mkt in b['markets']:
-                                m_label = mkt['key'].replace('player_', '').replace('_', ' ').title()
-                                st.write(f"**📍 Target: {m_label}**")
+                                label = mkt['key'].replace('player_', '').replace('_', ' ').title()
+                                st.write(f"**📍 {label}**")
                                 for out in mkt['outcomes']:
-                                    icon = "🟢" if out['name'] == 'Over' else "🔴"
-                                    st.write(f"{icon} {out['description']}: {out['name']} {out['point']} @ {out['price']}")
+                                    p_icon = "🟢" if out['name'] == 'Over' else "🔴"
+                                    st.write(f"{p_icon} {out['description']}: {out['name']} {out['point']} @ {out['price']}")
                     else:
-                        st.info("No player props available for this game yet (Check 2h before tip).")
+                        st.info("Props release closer to tip-off (2-4 hours).")
         except:
             continue
 else:
-    st.error("Failed to connect to NBA feed. Check your API key or usage limit.")
+    st.error("Connection Failed. Check API Credits.")
