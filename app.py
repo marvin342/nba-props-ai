@@ -1,100 +1,84 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 
-# --- 1. ACCESS & SECURITY ---
-PASSWORD = "benja123"
-st.sidebar.title("🚀 NBA OVER-SPECIALIST")
-password = st.sidebar.text_input("Password", type="password")
-if password != PASSWORD:
-    st.warning("Locked.")
-    st.stop()
+# --- CONFIGURATION ---
+API_KEY = "27970d14c8e8eb9f2a217c775db6571f"
+SPORT = "basketball_nba"
+REGIONS = "us"
+MARKETS = "player_props_points,totals" # Focus on O/U for Points and Game Totals
 
-st_autorefresh(interval=1200000, key="nba_master_sync") 
+st.set_page_config(page_title="NBA AI Over/Under Predictor", layout="wide")
 
-# --- 2. CONFIG ---
-st.set_page_config(page_title="NBA OVER SPECIALIST", layout="wide", page_icon="🔥")
-API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
+# --- UI STYLE ---
+st.markdown("""
+    <style>
+    .main { background-color: #0e1117; color: white; }
+    .stMetric { background-color: #1f2937; padding: 15px; border-radius: 10px; border: 1px solid #374151; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 3. THE "SHOOTOUT" ENGINE ---
-def get_over_confidence(o_price, u_price):
-    # Focuses purely on the likelihood of the OVER
-    implied_o = 1 / o_price
-    implied_u = 1 / u_price
-    total = implied_o + implied_u
-    over_prob = implied_o / total
-    return round(over_prob * 100, 2)
+st.title("🏀 NBA AI Prop & O/U Detector")
+st.sidebar.header("Settings")
+selected_market = st.sidebar.selectbox("Select Market", ["Player Points", "Game Totals"])
 
-@st.cache_data(ttl=1200)
-def get_data(api_key, event_id=None):
-    if event_id:
-        url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets=player_points,player_rebounds,player_assists&oddsFormat=decimal"
+def fetch_odds(market_key):
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
+    params = {
+        "api_key": API_KEY,
+        "regions": REGIONS,
+        "markets": market_key,
+        "oddsFormat": "american"
+    }
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        return response.json()
     else:
-        url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey={api_key}&regions=us&markets=totals&oddsFormat=decimal"
-    try:
-        r = requests.get(url)
-        return r.json()
-    except: return None
+        st.error(f"Error fetching data: {response.status_code}")
+        return []
 
-# --- 4. INTERFACE ---
-st.title("🏀 OVER-SPECIALIST: HIGH-SCORING SIGNALS")
-search_query = st.text_input("🔍 Search Teams", "").lower()
+# --- MOCK AI LOGIC (Replace with your ML model later) ---
+def get_ai_prediction(player_name, line):
+    # This is where you'd call a model trained on Box Scores
+    # For now, we simulate a 'Confidence Score'
+    import random
+    score = random.uniform(50, 85)
+    recommendation = "OVER" if score > 70 else "UNDER" if score < 30 else "PASS"
+    return recommendation, round(score, 2)
 
-nba_data = get_data(API_KEY)
-
-if nba_data:
-    processed_games = []
-    for g in nba_data:
-        try:
-            mkt = next(m for m in g['bookmakers'][0]['markets'] if m['key'] == 'totals')
-            o, u = mkt['outcomes'][0], mkt['outcomes'][1]
-            o_conf = get_over_confidence(o['price'], u['price'])
-            processed_games.append({**g, 'o_conf': o_conf, 'line': o['point']})
-        except: continue
+# --- MAIN DASHBOARD ---
+if st.button("Refresh Live Odds"):
+    market_to_fetch = "player_props_points" if selected_market == "Player Points" else "totals"
+    data = fetch_odds(market_to_fetch)
     
-    # Sort so the highest "Over" probabilities are at the top
-    processed_games = sorted(processed_games, key=lambda x: x['o_conf'], reverse=True)
-    filtered_data = [g for g in processed_games if search_query in g['home_team'].lower() or search_query in g['away_team'].lower()]
-
-    for game in filtered_data:
-        home, away = game['home_team'], game['away_team']
-        event_id, o_conf = game['id'], game['o_conf']
-        
-        # ELITE OVER SIGNAL: High confidence + High scoring matchup
-        is_shootout = o_conf > 52.5
-        status = "🔥 MAX STRENGTH OVER" if is_shootout else "⚖️ NEUTRAL OVER"
-        
-        with st.expander(f"{status} | {away} @ {home} (Line: {game['line']})", expanded=is_shootout):
-            c1, c2 = st.columns(2)
-            c1.metric("Over Confidence", f"{o_conf}%")
-            c2.success(f"**Strategy:** {'STAKE THE OVER' if is_shootout else 'Check Line Value'}")
-            
-            # --- PLAYER OVER-PROP SCANNER ---
-            if st.button(f"🚀 FIND BEST PLAYER OVERS: {away} vs {home}", key=f"btn_{event_id}"):
-                prop_data = get_data(API_KEY, event_id=event_id)
-                if prop_data:
-                    over_props = []
-                    for b in prop_data['bookmakers']:
-                        for m in b['markets']:
-                            players = {}
-                            for out in m['outcomes']:
-                                n = out['description']
-                                if n not in players: players[n] = {}
-                                players[n][out['name']] = {'point': out['point'], 'price': out['price']}
-                            
-                            for p_name, p_data in players.items():
-                                if 'Over' in p_data:
-                                    p_o_conf = get_over_confidence(p_data['Over']['price'], p_data['Under']['price'])
-                                    over_props.append({'name': p_name, 'type': m['key'], 'line': p_data['Over']['point'], 'conf': p_o_conf})
+    if data:
+        for game in data:
+            with st.expander(f"{game['home_team']} vs {game['away_team']}"):
+                cols = st.columns(3)
+                
+                # Iterate through bookmakers (using the first one for simplicity)
+                bookie = game['bookmakers'][0]
+                market = bookie['markets'][0]
+                
+                for outcome in market['outcomes']:
+                    name = outcome.get('description', outcome['name'])
+                    line = outcome['point']
+                    price = outcome['price']
                     
-                    # Focus ONLY on Overs with > 53% Confidence
-                    best_overs = [p for p in over_props if p['conf'] > 53]
-                    if best_overs:
-                        for p in sorted(best_overs, key=lambda x: x['conf'], reverse=True):
-                            st.success(f"✅ **HIGH-STRENGTH OVER:** {p['name']} {p['line']} {p['type'].replace('player_', '').title()} ({p['conf']}% Confidence)")
-                    else:
-                        st.info("No 'High Strength' player overs found yet. Market is efficient right now.")
-                else: st.info("Props loading... Check closer to tip-off.")
-else: st.error("Sync Failed.")
+                    # Call AI Logic
+                    rec, conf = get_ai_prediction(name, line)
+                    
+                    with st.container():
+                        c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                        c1.write(f"**{name}**")
+                        c2.write(f"Line: {line}")
+                        c3.write(f"Odds: {price}")
+                        
+                        if rec == "OVER":
+                            c4.success(f"🚀 {rec} ({conf}%)")
+                        elif rec == "UNDER":
+                            c4.warning(f"📉 {rec} ({conf}%)")
+                        else:
+                            c4.info("⚖️ NEUTRAL")
+    else:
+        st.write("No active lines found. Check if games are live!")
