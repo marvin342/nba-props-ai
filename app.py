@@ -2,85 +2,87 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-from scipy.stats import norm, poisson
-import math
+from scipy.stats import norm
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. PRIVATE ACCESS ---
+# --- 1. ACCESS & REFRESH ---
 PASSWORD = "benja123"
-st.sidebar.title("🔒 Private Access")
+st.sidebar.title("🔒 NBA PRIVATE ACCESS")
 password = st.sidebar.text_input("Password", type="password")
+
 if password != PASSWORD:
-    st.warning("Access denied")
+    st.warning("Please enter the correct access key.")
     st.stop()
 
-# --- 2. SETUP & REFRESH ---
-st.set_page_config(page_title="ELITE COMMAND GLOBAL", layout="wide")
-st_autorefresh(interval=600000, key="global_sync")
+st_autorefresh(interval=300000, key="nba_live_sync") # Refresh every 5 mins
 
+# --- 2. CONFIG ---
+st.set_page_config(page_title="NBA TRUSTED OVERS", layout="wide", page_icon="🏀")
 API_KEY = "2bbe95bafab32dd8fa0be8ae23608feb" 
 
-# --- 3. THE ENGINES ---
-def get_nba_proj(line, price):
-    # NBA Normal Distribution
-    ai_proj = line + (2.5 if price < 1.9 else -2.0)
-    z = (line - ai_proj) / 12.0
-    prob = 1 - norm.cdf(z)
-    return ai_proj, prob
+# --- 3. NBA SCORING AVERAGES (2025-26 Season) ---
+# We use this to cross-reference if the Bookie total is "too high" or "too low"
+TEAM_PPG = {
+    "Detroit Pistons": 117.5, "Boston Celtics": 115.9, "Cleveland Cavaliers": 119.4,
+    "Oklahoma City Thunder": 120.2, "Miami Heat": 119.9, "Orlando Magic": 115.0,
+    "Brooklyn Nets": 107.1, "Toronto Raptors": 113.8, "Chicago Bulls": 117.2,
+    "San Antonio Spurs": 116.9, "Dallas Mavericks": 113.8, "Los Angeles Lakers": 116.3
+}
 
-def get_soccer_proj(target_xg):
-    # Soccer Poisson Distribution
-    h_exp, a_exp = target_xg * 0.525, target_xg * 0.475
-    prob_o25 = 1 - (poisson.pmf(0, h_exp) * poisson.pmf(0, a_exp) + 
-                    poisson.pmf(1, h_exp) * poisson.pmf(0, a_exp) + 
-                    poisson.pmf(0, h_exp) * poisson.pmf(1, a_exp) +
-                    poisson.pmf(1, h_exp) * poisson.pmf(1, a_exp))
-    return prob_o25
-
-# --- 4. DASHBOARD ---
-st.title("☢️ ELITE COMMAND: GLOBAL ML PREDICTOR")
-st.sidebar.header("🛠️ Settings")
-market_choice = st.sidebar.radio("Select Market", ["Soccer Global", "NBA Basketball"])
-min_edge = st.sidebar.slider("Minimum Edge % (Lower this if empty!)", 0.01, 0.15, 0.03)
-
-found_any = False
-
-if market_choice == "Soccer Global":
-    # Added Mexico and Argentina for Midweek Action!
-    LEAGUES = {"EPL": "soccer_epl", "LaLiga": "soccer_spain_la_liga", "Mexico MX": "soccer_mexico_ligamx", "Argentina": "soccer_argentina_primera_division"}
+def get_nba_edge(home_team, away_team, bookie_line, price):
+    # Calculate Base Projection from Season PPG
+    h_avg = TEAM_PPG.get(home_team, 115.0)
+    a_avg = TEAM_PPG.get(away_team, 115.0)
+    base_projection = h_avg + a_avg
     
-    for label, lid in LEAGUES.items():
-        url = f"https://api.the-odds-api.com/v4/sports/{lid}/odds/?apiKey={API_KEY}&regions=uk&markets=totals"
+    # Normal Distribution (NBA std dev is ~12 pts)
+    z_score = (bookie_line - base_projection) / 12.0
+    prob_over = 1 - norm.cdf(z_score)
+    edge = prob_over - (1 / price)
+    return base_projection, prob_over, edge
+
+# --- 4. MAIN INTERFACE ---
+st.title("🏀 NBA LIVE COMMAND: TRUSTED OVERS")
+st.subheader(f"Schedule for {pd.Timestamp.now().strftime('%B %d, %Y')}")
+
+url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey={API_KEY}&regions=us&markets=totals"
+
+try:
+    data = requests.get(url).json()
+    found_play = False
+
+    for m in data:
         try:
-            res = requests.get(url).json()
-            for m in res:
-                bookie = m['bookmakers'][0]
-                o25 = next(o for o in bookie['markets'][0]['outcomes'] if o['name'] == 'Over' and o['point'] == 2.5)
-                target_xg = 2.45 + (1.28 / math.log(o25['price'] + 0.08))
-                prob = get_soccer_proj(target_xg)
-                edge = prob - (1/o25['price'])
-                
-                if edge >= min_edge:
-                    found_any = True
-                    with st.expander(f"⚽ {m['home_team']} vs {m['away_team']} ({label})"):
-                        st.metric("Win Prob (O2.5)", f"{prob:.1%}", f"{edge:+.1%} Edge")
-        except: continue
-
-else: # NBA Logic
-    url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey={API_KEY}&regions=us&markets=totals"
-    try:
-        res = requests.get(url).json()
-        for m in res:
+            home, away = m['home_team'], m['away_team']
             bookie = m['bookmakers'][0]
-            over = next(o for o in bookie['markets'][0]['outcomes'] if o['name'] == 'Over')
-            proj, prob = simulate_nba_game(over['point'], over['price'])
-            edge = prob - (1/over['price'])
+            market = next(mk for mk in bookie['markets'] if mk['key'] == 'totals')
+            over = next(o for o in market['outcomes'] if o['name'] == 'Over')
             
-            if edge >= min_edge:
-                found_any = True
-                with st.expander(f"🏀 {m['home_team']} vs {m['away_team']}"):
-                    st.metric("AI Projected Score", f"{proj:.1f}", f"{edge:+.1%} Edge")
-    except: continue
+            line, price = over['point'], over['price']
+            proj, prob, edge = get_nba_edge(home, away, line, price)
 
-if not found_any:
-    st.info("Scanner Active: No games found with current Edge settings. Try lowering the 'Minimum Edge' slider in the sidebar.")
+            # --- DISPLAY TRUSTED PLAYS ONLY ---
+            if edge > 0.03: # Filter for 3% edge or higher
+                found_play = True
+                with st.container():
+                    st.markdown(f"### 🔥 {home} vs {away}")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    col1.metric("Bookie Total", f"{line}")
+                    col2.metric("AI Projection", f"{proj:.1f}")
+                    col3.metric("Win Prob", f"{prob:.1%}")
+                    col4.metric("Edge", f"{edge:+.1%}")
+                    
+                    if edge > 0.07:
+                        st.error(f"☢️ HIGH CONFIDENCE: Take the OVER {line}")
+                    else:
+                        st.success(f"✅ TRUSTED: Over {line} has value")
+                    st.divider()
+        except:
+            continue
+
+    if not found_play:
+        st.info("Scanner active. No high-value 'Over' plays detected yet. Check back 1 hour before tip-off.")
+
+except Exception as e:
+    st.error("Connection Error. Ensure your API key is active for NBA markets.")
