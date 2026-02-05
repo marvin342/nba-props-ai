@@ -6,7 +6,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- 1. ACCESS & SECURITY ---
 PASSWORD = "benja123"
-st.sidebar.title("🦾 NBA QUANT-ELITE")
+st.sidebar.title("🔐 NBA PRIVATE ACCESS")
 password = st.sidebar.text_input("Password", type="password")
 if password != PASSWORD:
     st.warning("Locked.")
@@ -14,35 +14,27 @@ if password != PASSWORD:
 
 st_autorefresh(interval=1200000, key="nba_master_sync") 
 
-# --- 2. CONFIG ---
-st.set_page_config(page_title="NBA MAX STRENGTH", layout="wide", page_icon="🏀")
+# --- 2. CONFIG & STYLING ---
+st.set_page_config(page_title="NBA ELITE COMMAND", layout="wide", page_icon="🏀")
 API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
 
-# --- 3. QUANT ENGINES ---
-def calculate_no_vig_fair_odds(o_price, u_price):
-    # Mathematically removes the 'Juice' to find the True Probability
-    implied_o = 1 / o_price
-    implied_u = 1 / u_price
-    total_implied = implied_o + implied_u
-    fair_o_prob = implied_o / total_implied
-    return round(fair_o_prob * 100, 1)
+# Custom CSS for a clean "Dark Mode" betting look
+st.markdown("""
+    <style>
+    .stMetric { background-color: #1e1e1e; padding: 10px; border-radius: 10px; border: 1px solid #333; }
+    .stExpander { border: 1px solid #444 !important; border-radius: 10px !important; }
+    </style>
+""", unsafe_allow_html=True)
 
-def kelly_criterion(fair_prob, odds):
-    # Professional Bankroll Management Formula (Fractional Kelly 0.25)
-    p = fair_prob / 100
-    q = 1 - p
-    b = odds - 1
-    kelly_f = (b * p - q) / b
-    # We use 1/4 Kelly to be safe and avoid big swings
-    return max(0, round(kelly_f * 0.25 * 100, 2))
-
+# --- 3. DATA ENGINES ---
 @st.cache_data(ttl=1200)
 def get_all_nba_games(api_key):
     url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey={api_key}&regions=us&markets=totals&oddsFormat=decimal"
     try:
         r = requests.get(url)
         return r.json(), r.headers.get('x-requests-remaining', 'N/A')
-    except: return None, "Error"
+    except:
+        return None, "Error"
 
 @st.cache_data(ttl=1200)
 def get_extended_props(api_key, event_id):
@@ -50,14 +42,18 @@ def get_extended_props(api_key, event_id):
     try:
         r = requests.get(url)
         return r.json()
-    except: return None
+    except:
+        return None
 
 # --- 4. MAIN INTERFACE ---
-st.title("🏀 NBA QUANT-ELITE: MAX STRENGTH ENGINE")
-search_query = st.text_input("🔍 Search Teams", "").lower()
+st.title("🏀 NBA ELITE COMMAND CENTER")
+col_search, col_stats = st.columns([2, 1])
+with col_search:
+    search_query = st.text_input("🔍 Search Teams", placeholder="e.g. Lakers...").lower()
 
 nba_data, credits_left = get_all_nba_games(API_KEY)
-st.sidebar.metric("API Credits Left", credits_left)
+with col_stats:
+    st.metric("📡 Credits Left", credits_left)
 
 if nba_data:
     nba_data = sorted(nba_data, key=lambda x: x['commence_time'])
@@ -69,55 +65,62 @@ if nba_data:
         commence_time = pd.to_datetime(game['commence_time']).strftime('%m/%d | %I:%M %p')
         
         try:
+            # --- GAME TOTALS ANALYSIS ---
             bookie = game['bookmakers'][0]
             mkt = next(m for m in bookie['markets'] if m['key'] == 'totals')
             over = next(o for o in mkt['outcomes'] if o['name'] == 'Over')
             under = next(u for u in mkt['outcomes'] if u['name'] == 'Under')
             
-            # --- QUANT CALCULATION ---
-            fair_over_prob = calculate_no_vig_fair_odds(over['price'], under['price'])
-            rec_stake = kelly_criterion(fair_over_prob, over['price']) if fair_over_prob > 52 else kelly_criterion(100-fair_over_prob, under['price'])
+            line, o_p, u_p = over['point'], over['price'], under['price']
             
-            # STRENGTH LABELS
-            is_max = rec_stake > 2.5 # Anything suggesting over 2.5% of bankroll is a huge play
-            status = "🧨 MAX QUANT STRENGTH" if is_max else "⚖️ CALCULATED LEAN"
+            # HIGH STRENGTH LOGIC
+            is_trusted_over = line > 233 or o_p < 1.82
+            is_trusted_under = line < 217 or u_p < 1.82
             
-            with st.expander(f"{status} | {away} @ {home} ({commence_time})", expanded=is_max):
+            # AI LEAN LOGIC (For games without trusted tags)
+            lean_text = "OVER" if o_p < u_p else "UNDER"
+            lean_color = "green" if o_p < u_p else "red"
+
+            status_label = "💣 TRUSTED" if (is_trusted_over or is_trusted_under) else f"💡 AI LEAN: {lean_text}"
+            
+            with st.expander(f"{status_label} | {away} @ {home} ({commence_time})"):
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Line", f"{over['point']}")
-                c2.metric("True Win %", f"{fair_over_prob}%", help="No-Vig Probability")
-                c3.metric("Rec. Stake", f"{rec_stake}%", help="Based on Kelly Criterion")
-
-                # AI FINAL DIRECTIVE
-                lean = "OVER" if fair_over_prob > 50 else "UNDER"
-                st.info(f"🎯 **ELITE CALL:** TAKE THE {lean} {over['point']} | Strength: {rec_stake}%")
-
-                # --- PRO-ANALYSIS ---
+                c1.metric("Game Line", f"{line}")
+                c2.metric("Over", f"{o_p}", delta="HIGH VALUE" if is_trusted_over else None)
+                c3.metric("Under", f"{u_p}", delta="HIGH VALUE" if is_trusted_under else None, delta_color="inverse")
+                
+                # --- MAX STRENGTH PLAYER PROPS ---
                 st.markdown("---")
-                if st.button(f"🚀 RUN QUANT PROP SCAN: {away} vs {home}", key=f"btn_{event_id}"):
+                if st.button(f"🚀 ANALYZE ALL PROPS: {away} vs {home}", key=f"btn_{event_id}"):
                     prop_data = get_extended_props(API_KEY, event_id)
                     if prop_data and 'bookmakers' in prop_data:
                         for b in prop_data['bookmakers']:
-                            for mkt_p in b['markets']:
-                                label = mkt_p['key'].replace('player_', '').replace('_', ' ').upper()
-                                st.write(f"**📍 {label} ANALYTICS**")
+                            for prop_mkt in b['markets']:
+                                label = prop_mkt['key'].replace('player_', '').replace('_', ' ').title()
+                                st.write(f"**📍 {label} Targets**")
                                 
                                 players = {}
-                                for out in mkt_p['outcomes']:
-                                    n = out['description']
-                                    if n not in players: players[n] = {}
-                                    players[n][out['name']] = {'point': out['point'], 'price': out['price']}
+                                for out in prop_mkt['outcomes']:
+                                    name = out['description']
+                                    if name not in players: players[name] = {}
+                                    players[name][out['name']] = {'point': out['point'], 'price': out['price']}
                                 
                                 for p_name, p_data in players.items():
                                     if 'Over' in p_data and 'Under' in p_data:
-                                        op, up = p_data['Over']['price'], p_data['Under']['price']
-                                        line, fp = p_data['Over']['point'], calculate_no_vig_fair_odds(op, up)
-                                        p_stake = kelly_criterion(fp if fp > 50 else 100-fp, op if fp > 50 else up)
+                                        o_p_val, u_p_val = p_data['Over']['price'], p_data['Under']['price']
+                                        p_line = p_data['Over']['point']
                                         
-                                        if p_stake >= 3.0: # Professional Grade Threshold
-                                            st.success(f"🔥 **MAX STAKE**: {p_name} {line} ({'OVER' if fp > 50 else 'UNDER'}) - Stake: {p_stake}%")
+                                        # STRONG VALUE FLAG
+                                        if o_p_val <= 1.75:
+                                            st.success(f"🔥 **STAKE OVER**: {p_name} {p_line} (@{o_p_val})")
+                                        elif u_p_val <= 1.75:
+                                            st.error(f"❄️ **STAKE UNDER**: {p_name} {p_line} (@{u_p_val})")
                                         else:
-                                            st.write(f"👤 {p_name}: {line} (Lean: {'OVER' if fp > 50 else 'UNDER'} | {p_stake}%)")
-                    else: st.info("Props loading... Check closer to tip-off.")
+                                            # AI LEAN FOR PROPS
+                                            p_lean = "OVER" if o_p_val < u_p_val else "UNDER"
+                                            st.write(f"👤 {p_name}: {p_line} (AI Lean: {p_lean})")
+                    else:
+                        st.info("Props release closer to tip-off (2-4 hours).")
         except: continue
-else: st.error("Connection Failed. Check API Credits.")
+else:
+    st.error("Connection Failed. Check API Credits.")
