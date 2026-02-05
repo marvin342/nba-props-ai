@@ -1,71 +1,71 @@
 import streamlit as st
 import requests
 import pandas as pd
-from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. ACCESS & REFRESH ---
+# --- 1. PRIVATE ACCESS ---
 PASSWORD = "benja123"
 st.sidebar.title("🏀 NBA PRIVATE ACCESS")
 password = st.sidebar.text_input("Password", type="password")
+
 if password != PASSWORD:
-    st.warning("Locked.")
+    st.warning("Locked. Enter password to view NBA data.")
     st.stop()
 
-# Auto-refresh every 30 mins (Saves credits, keeps data fresh forever)
-st_autorefresh(interval=1800000, key="nba_forever_sync") 
+# Auto-refresh every 20 mins to conserve your new 500 credits
+st_autorefresh(interval=1200000, key="nba_sync") 
 
 # --- 2. CONFIG ---
-API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
-st.sidebar.header("⚙️ Filter Engine")
-show_all = st.sidebar.checkbox("Show All Upcoming Games", value=False)
+st.set_page_config(page_title="NBA TRUSTED OVERS", layout="wide", page_icon="🏀")
+NEW_API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
 
-# --- 3. THE "FOREVER" DATA FETCH ---
-@st.cache_data(ttl=1800)
-def get_nba_stream(api_key):
-    # This specific URL pulls everything currently in the 'Active' bookie window
+# --- 3. CACHED DATA FETCHING (FUEL SAVER) ---
+@st.cache_data(ttl=1200) # Freezes data for 20 mins so clicks don't waste credits
+def get_nba_totals(api_key):
     url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey={api_key}&regions=us&markets=totals&oddsFormat=decimal"
     try:
         r = requests.get(url)
-        return r.json() if r.status_code == 200 else []
+        if r.status_code == 200:
+            return r.json(), r.headers.get('x-requests-remaining', 'N/A')
+        return None, "Error"
     except:
-        return []
+        return None, "Offline"
 
-# --- 4. DISPLAY ENGINE ---
-st.title("🏀 NBA INDEFINITE SCANNER")
-data = get_nba_stream(API_KEY)
+# --- 4. MAIN INTERFACE ---
+st.title("🏀 NBA LIVE COMMAND: TRUSTED OVERS")
+st.markdown(f"**Date:** {pd.Timestamp.now().strftime('%B %d, %Y')}")
 
-if data:
-    # Separate games by date automatically
-    today_str = datetime.now().strftime('%Y-%m-%d')
-    
-    st.write(f"📡 **Systems Online.** Monitoring {len(data)} games across the next 48 hours.")
-    
-    for game in data:
+nba_data, credits_left = get_nba_totals(NEW_API_KEY)
+st.sidebar.metric("API Credits Left", credits_left)
+
+if nba_data:
+    st.write(f"🔍 **Scanner Status:** Connected. Monitoring {len(nba_data)} live markets.")
+    found_play = False
+
+    for game in nba_data:
         try:
             home, away = game['home_team'], game['away_team']
-            start_dt = pd.to_datetime(game['commence_time'])
-            game_date = start_dt.strftime('%Y-%m-%d')
-            display_time = start_dt.strftime('%m/%d | %I:%M %p')
-
-            # Extract Market Data
-            bookie = game['bookmakers'][0]
+            bookie = game['bookmakers'][0] # Grabs FanDuel/DraftKings
             market = next(m for m in bookie['markets'] if m['key'] == 'totals')
             over = next(o for o in market['outcomes'] if o['name'] == 'Over')
             
-            # THE "TRUSTED" MATH (Always active)
-            # If the price is low (e.g., 1.85), it means the 'Over' is being heavily bet
-            is_sharp_move = over['price'] < 1.90
+            line = over['point']
+            price = over['price']
 
-            if show_all or is_sharp_move:
-                label = "🔥 TRUSTED OVER" if is_sharp_move else "📅 SCHEDULED"
-                with st.expander(f"{label}: {home} vs {away} ({display_time})", expanded=is_sharp_move):
-                    c1, c2 = st.columns(2)
-                    c1.metric("Current Line", f"{over['point']}")
-                    c2.metric("Odds", f"{over['price']}")
-                    if is_sharp_move:
-                        st.success("✅ Sharp money detected on the Over.")
+            # --- TRUSTED LOGIC ---
+            # Flagging high-value overs based on today's specific game lines
+            # Example: 241.5 for Hawks/Jazz is very high, implying a massive shootout.
+            if line > 230 or price < 1.90:
+                found_play = True
+                with st.expander(f"🔥 {home} vs {away}", expanded=True):
+                    col1, col2 = st.columns(2)
+                    col1.metric("Bookie Line", f"{line}")
+                    col2.metric("Over Odds", f"{price}")
+                    st.success(f"**TRUSTED ACTION:** Bet the OVER {line}")
         except:
             continue
+
+    if not found_play:
+        st.info("Scanner Active: No 'Extreme Value' overs detected yet. Markets update closer to tip-off.")
 else:
-    st.error("No live data found. Check API key status.")
+    st.error("API Connection Failed. Your new key might not be fully activated yet (takes 5-10 mins).")
