@@ -1,83 +1,42 @@
 import streamlit as st
 import requests
 
-# --- 1. URBAN THEME OVERRIDE (ZOOMED OUT & BALANCED) ---
+# --- 1. URBAN THEME OVERRIDE ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Permanent+Marker&display=swap');
 
-    /* Kill white space & adjust overall zoom feel */
-    .stApp {
-        background: #05070a !important;
-        color: #ffffff;
-    }
+    .stApp { background: #05070a !important; color: #ffffff; }
+    .block-container { max-width: 1000px !important; padding-top: 2rem !important; }
+    [data-testid="stSidebar"] { background-color: #0c0f16 !important; border-right: 2px solid #ff4b4b; }
 
-    /* Reduce the main container width to 'zoom out' the content */
-    .block-container {
-        max-width: 1000px !important;
-        padding-top: 2rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-    }
-
-    [data-testid="stSidebar"] {
-        background-color: #0c0f16 !important;
-        border-right: 2px solid #ff4b4b;
-    }
-
-    /* THE UPDATED NBA SHARP AI HEADER (SCALED DOWN) */
     .header-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 25px;
-        padding-bottom: 20px;
-        border-bottom: 1px solid #1c2128;
-        margin-bottom: 30px;
+        display: flex; justify-content: center; align-items: center;
+        gap: 25px; padding-bottom: 20px; border-bottom: 1px solid #1c2128; margin-bottom: 30px;
     }
-
     .graffiti-title-english {
-        font-family: 'Permanent Marker', cursive;
-        font-size: 38px; /* Reduced from 70px */
-        color: #ffffff;
-        text-shadow: 3px 3px 0px #ff4b4b, -1px -1px 0px #58a6ff;
+        font-family: 'Permanent Marker', cursive; font-size: 38px;
+        color: #ffffff; text-shadow: 3px 3px 0px #ff4b4b, -1px -1px 0px #58a6ff;
     }
-
     .graffiti-title-arabic {
-        font-family: 'Aref Ruqaa', serif;
-        font-size: 38px; /* Reduced from 70px */
-        color: #ffffff;
-        text-shadow: 3px 3px 0px #58a6ff, -1px -1px 0px #ff4b4b;
+        font-family: 'Aref Ruqaa', serif; font-size: 38px;
+        color: #ffffff; text-shadow: 3px 3px 0px #58a6ff, -1px -1px 0px #ff4b4b;
         direction: rtl;
     }
 
-    /* Card Styling (Slimmer & Cleaners) */
     [data-testid="stVerticalBlock"] > div:has(div.stMetric) {
         background-color: #11151c !important;
-        border-radius: 12px;
-        border-left: 6px solid #ff4b4b;
-        border-right: 6px solid #58a6ff;
-        padding: 20px; /* Reduced padding */
-        box-shadow: 0px 8px 20px rgba(0,0,0,0.5);
-        margin-bottom: 15px; /* Tighter spacing */
-    }
-    
-    /* Shrink the game titles */
-    h2 {
-        font-size: 20px !important;
-        margin-bottom: 5px !important;
+        border-radius: 12px; border-left: 6px solid #ff4b4b; border-right: 6px solid #58a6ff;
+        padding: 20px; box-shadow: 0px 8px 20px rgba(0,0,0,0.5); margin-bottom: 15px;
     }
 
     .stButton>button {
         background: linear-gradient(90deg, #ff4b4b 0%, #58a6ff 100%) !important;
-        color: white !important;
-        font-family: 'Permanent Marker', cursive !important;
-        font-size: 20px !important; /* Scaled down */
-        border: 2px solid #ffffff !important;
-        border-radius: 8px !important;
-        height: 3.5rem !important; /* Scaled down from 5rem */
+        color: white !important; font-family: 'Permanent Marker', cursive !important;
+        font-size: 20px !important; border: 2px solid #ffffff !important;
+        border-radius: 8px !important; height: 3.5rem !important; width: 100%;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -92,13 +51,31 @@ NBA_STATS = {
     "Minnesota Timberwolves": {"off": 119.6, "def": 114.8},
     "Philadelphia 76ers": {"off": 116.8, "def": 115.3},
     "Los Angeles Lakers": {"off": 116.3, "def": 116.2},
-    "Phoenix Suns": {"off": 114.1, "def": 111.6},
-    "Golden State Warriors": {"off": 116.2, "def": 114.0},
-    "Miami Heat": {"off": 119.9, "def": 118.0},
-    "Dallas Mavericks": {"off": 113.8, "def": 116.5},
 }
 
-# --- 3. SESSION LOGIC ---
+# --- 3. CORE FUNCTIONS (CALLBACKS) ---
+
+def run_analysis_callback():
+    """Fetches new odds from the API and saves to session state."""
+    url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
+    params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
+    try:
+        res = requests.get(url, params=params)
+        if res.status_code == 200:
+            st.session_state.game_data = res.json()
+            # Clear old picks to allow fresh calculations
+            st.session_state.locked_picks = {}
+        else:
+            st.error(f"API Error: {res.status_code}")
+    except Exception as e:
+        st.error(f"Connection Failed: {e}")
+
+def wipe_memory_callback():
+    """Resets all data and predictions."""
+    st.session_state.game_data = []
+    st.session_state.locked_picks = {}
+
+# Initialize Session State
 if 'game_data' not in st.session_state:
     st.session_state.game_data = []
 if 'locked_picks' not in st.session_state:
@@ -119,7 +96,6 @@ def calculate_sharp_pick(game_id, away, home, line):
     return res
 
 # --- 4. THE UI ---
-# UPDATED TITLE: English on Left, Arabic on Right (Smaller/Zoomed Out)
 st.markdown("""
     <div class="header-container">
         <div class="graffiti-title-english">NBA SHARP AI</div>
@@ -127,18 +103,16 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-if st.button("RUN ANALYSIS - ابدأ التحليل"):
-    url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
-    params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
-    res = requests.get(url, params=params)
-    if res.status_code == 200:
-        st.session_state.game_data = res.json()
+# Main Action Button with on_click callback
+st.button("RUN ANALYSIS - ابدأ التحليل", on_click=run_analysis_callback)
 
 if st.session_state.game_data:
     for game in st.session_state.game_data:
         game_id, h, a = game['id'], game['home_team'], game['away_team']
-        try: line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
-        except: continue
+        try:
+            line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
+        except:
+            continue
         
         label, conf, proj = calculate_sharp_pick(game_id, a, h, line)
         
@@ -155,7 +129,6 @@ if st.session_state.game_data:
                 else: st.info(label)
                 st.caption(f"Sharp Level: {conf:.1f}%")
 
+# SIDEBAR: Settings with on_click callback
 st.sidebar.markdown("<h1 style='color:#ff4b4b; font-family:\"Aref Ruqaa\"; text-align:center;'>الإعدادات</h1>", unsafe_allow_html=True)
-if st.sidebar.button("WIPE MEMORY"):
-    st.session_state.locked_picks = {}
-    st.rerun()
+st.sidebar.button("WIPE MEMORY", on_click=wipe_memory_callback)
