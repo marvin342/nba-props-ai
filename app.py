@@ -1,53 +1,55 @@
 import streamlit as st
 import requests
 
-# --- 1. DESIGN & CSS (THE "NICE LOOK") ---
+# --- 1. THE "GRAFFITI" STYLING ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
-# Custom CSS for a professional Dark Mode look
+# This CSS injects the Arabic urban street style
 st.markdown("""
     <style>
-    /* Background color and font */
+    @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Reem+Kufi:wght@400;700&display=swap');
+
     .stApp {
-        background-color: #0e1117;
+        background: radial-gradient(circle at top left, #0e1117, #1c1c2b);
         color: #ffffff;
     }
-    /* Style the game containers as cards */
+
+    /* Graffiti Card Style */
     [data-testid="stVerticalBlock"] > div:has(div.stMetric) {
-        background-color: #1e2130;
-        border-radius: 15px;
-        padding: 20px;
-        border: 1px solid #30363d;
-        transition: transform 0.2s;
+        background-color: rgba(30, 33, 48, 0.8);
+        border-radius: 20px;
+        padding: 25px;
+        border-left: 5px solid #ff4b4b; /* Red Accent */
+        border-right: 5px solid #58a6ff; /* Blue Accent */
+        box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
+        margin-bottom: 20px;
     }
-    [data-testid="stVerticalBlock"] > div:has(div.stMetric):hover {
-        transform: scale(1.01);
-        border-color: #58a6ff;
+
+    /* Heading Arabic Style */
+    h1, h2, h3 {
+        font-family: 'Aref Ruqaa', serif !important;
+        text-shadow: 2px 2px #ff4b4b, -1px -1px #58a6ff;
+        letter-spacing: 1px;
     }
-    /* Subheaders */
-    .st-emotion-cache-10trblm {
-        color: #58a6ff !important;
-        font-weight: 700;
-    }
-    /* Button Styling */
+
+    /* Blue and Red Writing for labels */
+    .blue-tag { color: #58a6ff; font-weight: bold; font-family: 'Reem Kufi'; }
+    .red-tag { color: #ff4b4b; font-weight: bold; font-family: 'Reem Kufi'; }
+
+    /* Button: Urban Style */
     .stButton>button {
-        width: 100%;
-        border-radius: 10px;
-        background-color: #58a6ff;
+        background: linear-gradient(45deg, #ff4b4b, #58a6ff);
+        border: 2px solid #ffffff;
         color: white;
-        font-weight: bold;
-        border: none;
-        height: 3em;
-    }
-    /* Metric styling */
-    [data-testid="stMetricValue"] {
-        font-size: 24px;
-        color: #00ff00;
+        font-family: 'Aref Ruqaa';
+        font-size: 20px;
+        border-radius: 50px;
+        box-shadow: 0px 0px 15px rgba(88, 166, 255, 0.4);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. REAL-WORLD SHARP DATA ---
+# --- 2. DATA (NO CHANGES) ---
 NBA_STATS = {
     "Oklahoma City Thunder": {"off": 120.2, "def": 107.9},
     "Boston Celtics": {"off": 115.9, "def": 108.6},
@@ -91,19 +93,11 @@ def calculate_sharp_pick(game_id, away, home, line):
     return result
 
 # --- 4. THE UI LAYOUT ---
-st.title("🏀 NBA Sharp AI")
-st.caption("February 2026 Season Intelligence Dashboard")
+st.title("🏀 NBA SHARP AI - الرهان الذكي")
+st.markdown("<p style='text-align: right; font-family:\"Reem Kufi\"; color:#58a6ff;'>تحليل البيانات الحقيقية لعام ٢٠٢٦</p>", unsafe_allow_html=True)
 
-# Top Metrics Row
-t1, t2, t3 = st.columns(3)
-t1.metric("Market Status", "LIVE", delta="Active")
-t2.metric("Sharp Accuracy", "68%", delta="4.2%")
-t3.metric("League Avg PPG", "115.4")
-
-st.divider()
-
-if st.button("Generate Today's Sharp Picks"):
-    with st.spinner("Analyzing match-ups..."):
+if st.button("GENERATE PICKS - ابدأ المراهنة"):
+    with st.spinner("Calculating..."):
         API_KEY = "27970d14c8e8eb9f2a217c775db6571f"
         url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
         params = {"api_key": API_KEY, "regions": "us", "markets": "totals"}
@@ -111,7 +105,6 @@ if st.button("Generate Today's Sharp Picks"):
         if response.status_code == 200:
             st.session_state.game_data = response.json()
 
-# Result Cards
 if st.session_state.game_data:
     for game in st.session_state.game_data:
         game_id, home, away = game['id'], game['home_team'], game['away_team']
@@ -121,26 +114,24 @@ if st.session_state.game_data:
 
         label, conf, proj = calculate_sharp_pick(game_id, away, home, line)
 
-        # Card Layout
         with st.container():
             c1, c2, c3 = st.columns([3, 2, 2])
             with c1:
-                st.subheader(f"{away} vs {home}")
-                st.write(f"Vegas Total: **{line}**")
+                st.markdown(f"### {away} vs {home}")
+                st.markdown(f"<span class='blue-tag'>Vegas Total:</span> **{line}**", unsafe_allow_html=True)
             with c2:
-                st.metric("AI Projection", f"{proj:.1f}")
+                st.metric("PROJECTION - التحليل", f"{proj:.1f}")
             with c3:
                 if "OVER" in label:
-                    st.success(f"**{label}**\n\n{conf:.1f}% Sharp")
+                    st.success(f"**{label}**\n\n{conf:.1f}% SHARP")
                 elif "UNDER" in label:
-                    st.error(f"**{label}**\n\n{conf:.1f}% Sharp")
+                    st.error(f"**{label}**\n\n{conf:.1f}% SHARP")
                 else:
                     st.info(label)
-            st.markdown("---")
 else:
-    st.info("No games loaded. Please click 'Generate Today's Sharp Picks'.")
+    st.info("No games loaded. Hit the graffiti button above! 🚀")
 
-st.sidebar.title("Settings")
-if st.sidebar.button("Reset AI Memory"):
+st.sidebar.markdown("<h2 style='color:#ff4b4b;'>Settings - الإعدادات</h2>", unsafe_allow_html=True)
+if st.sidebar.button("RESET MEMORY - مسح"):
     st.session_state.locked_picks = {}
     st.rerun()
