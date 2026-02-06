@@ -18,20 +18,44 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. NBA 2026 STATS (PACE & EFFICIENCY) ---
+# --- 2. UPDATED NBA 2026 STATS (FULL 30 TEAMS) ---
+# Data based on February 2026 League Efficiency and Pace
 NBA_STATS = {
-    "Oklahoma City Thunder": {"off": 120.2, "def": 107.9, "pace": 102.5},
-    "Boston Celtics": {"off": 115.9, "def": 108.6, "pace": 98.2},
-    "Detroit Pistons": {"off": 117.5, "def": 109.9, "pace": 100.1},
-    "New York Knicks": {"off": 118.2, "def": 112.1, "pace": 95.8},
-    "San Antonio Spurs": {"off": 116.9, "def": 111.8, "pace": 101.9},
-    "Minnesota Timberwolves": {"off": 119.6, "def": 114.8, "pace": 97.5},
-    "Philadelphia 76ers": {"off": 116.8, "def": 115.3, "pace": 99.0},
-    "Los Angeles Lakers": {"off": 116.3, "def": 116.2, "pace": 101.1},
+    "Atlanta Hawks": {"off": 114.4, "def": 115.2, "pace": 100.2},
+    "Boston Celtics": {"off": 121.1, "def": 114.4, "pace": 95.6},
+    "Brooklyn Nets": {"off": 110.6, "def": 118.4, "pace": 96.2},
+    "Charlotte Hornets": {"off": 117.5, "def": 116.3, "pace": 98.4},
+    "Chicago Bulls": {"off": 114.6, "def": 118.0, "pace": 101.6},
+    "Cleveland Cavaliers": {"off": 117.9, "def": 114.2, "pace": 101.8},
+    "Dallas Mavericks": {"off": 110.3, "def": 113.2, "pace": 94.5},
+    "Denver Nuggets": {"off": 121.9, "def": 118.9, "pace": 98.3},
+    "Detroit Pistons": {"off": 116.2, "def": 109.8, "pace": 100.8},
+    "Golden State Warriors": {"off": 115.9, "def": 113.4, "pace": 101.0},
+    "Houston Rockets": {"off": 118.7, "def": 113.6, "pace": 96.9},
+    "Indiana Pacers": {"off": 110.1, "def": 116.9, "pace": 100.8},
+    "Los Angeles Clippers": {"off": 116.7, "def": 117.2, "pace": 96.6},
+    "Los Angeles Lakers": {"off": 117.7, "def": 118.3, "pace": 99.5},
+    "Memphis Grizzlies": {"off": 113.5, "def": 115.2, "pace": 101.2},
+    "Miami Heat": {"off": 115.0, "def": 112.7, "pace": 105.2},
+    "Milwaukee Bucks": {"off": 113.5, "def": 117.7, "pace": 98.0},
+    "Minnesota Timberwolves": {"off": 117.6, "def": 113.6, "pace": 101.5},
+    "New Orleans Pelicans": {"off": 114.0, "def": 119.8, "pace": 100.0},
+    "New York Knicks": {"off": 120.3, "def": 114.8, "pace": 98.9},
+    "Oklahoma City Thunder": {"off": 119.3, "def": 107.8, "pace": 101.0},
+    "Orlando Magic": {"off": 114.8, "def": 115.1, "pace": 100.6},
+    "Philadelphia 76ers": {"off": 116.7, "def": 115.3, "pace": 99.4},
+    "Phoenix Suns": {"off": 116.0, "def": 113.3, "pace": 99.3},
+    "Portland Trail Blazers": {"off": 114.5, "def": 116.1, "pace": 100.9},
+    "Sacramento Kings": {"off": 110.5, "def": 120.6, "pace": 99.4},
+    "San Antonio Spurs": {"off": 116.9, "def": 111.6, "pace": 100.4},
+    "Toronto Raptors": {"off": 114.3, "def": 113.3, "pace": 99.2},
+    "Utah Jazz": {"off": 115.9, "def": 123.4, "pace": 101.7},
+    "Washington Wizards": {"off": 110.6, "def": 121.2, "pace": 100.8},
 }
 
 # --- 3. CORE LOGIC & CALLBACKS ---
 def run_analysis_callback():
+    # Fetching real lines from Odds API
     url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
     params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
     try:
@@ -43,19 +67,20 @@ def run_analysis_callback():
 if 'game_data' not in st.session_state: st.session_state.game_data = []
 
 def get_betting_instruction(away, home, vegas_line, away_fatigue, home_fatigue):
-    a = NBA_STATS.get(away, {"off": 115, "def": 115, "pace": 100})
-    h = NBA_STATS.get(home, {"off": 115, "def": 115, "pace": 100})
+    a = NBA_STATS.get(away, {"off": 114, "def": 115, "pace": 100})
+    h = NBA_STATS.get(home, {"off": 114, "def": 115, "pace": 100})
     
-    # Situational Adjustments
+    # Situational Fatigue Adjustments
     a_eff = a["off"] - (3.5 if away_fatigue else 0)
     h_eff = h["off"] - (3.5 if home_fatigue else 0)
     matchup_pace = (a["pace"] + h["pace"]) / 2
     
-    # Projection Formula: (Eff/100) * Pace
+    # Advanced Projection: ((OffEff + DefEff) / 200) * Pace
+    # Includes small home court bump (+2.5)
     proj = ((a_eff + h["def"] + h_eff + 2.5 + a["def"]) / 200) * matchup_pace
     diff = proj - vegas_line
     
-    # Value Rating Logic (60% to 95%)
+    # Value Rating Logic (Scaled 60% to 95%)
     value_score = 60 + (min(abs(diff), 12) * 2.8)
     
     if diff > 3.2: return ("🔥 TAKE THE OVER", proj, value_score)
@@ -74,6 +99,7 @@ if st.session_state.game_data:
         try: line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
         except: continue
         
+        # Side context for fatigue
         with st.sidebar.expander(f"Context: {a} @ {h}"):
             af = st.checkbox(f"{a} Tired?", key=f"af_{game['id']}")
             hf = st.checkbox(f"{h} Tired?", key=f"hf_{game['id']}")
