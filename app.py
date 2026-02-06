@@ -6,71 +6,61 @@ import random
 API_KEY = "27970d14c8e8eb9f2a217c775db6571f"
 SPORT = "basketball_nba"
 
-st.set_page_config(page_title="NBA Best Bets", layout="wide")
+# 1. Initialize the "Save Slot" (Session State)
+if 'predictions' not in st.session_state:
+    st.session_state.predictions = {}
 
-def get_ai_prediction(game_name, over_odds, under_odds, line):
+def get_consistent_prediction(game_id):
     """
-    Improved Logic: Analyzes the whole game line once.
+    Checks if we already made a prediction for this game today.
+    If not, it makes one and saves it.
     """
-    # Simulate an AI edge calculation
-    # In a real app, you'd compare this 'line' to your model's projected total
-    edge = random.uniform(-10, 10) 
-    confidence = abs(edge) * 10
+    if game_id not in st.session_state.predictions:
+        # Simulate logic (In real life, this would be your ML model)
+        edge = random.uniform(-10, 10)
+        confidence = round(abs(edge) * 10, 1)
+        
+        if edge > 3.0:
+            pick = "OVER"
+        elif edge < -3.0:
+            pick = "UNDER"
+        else:
+            pick = "PASS"
+            
+        # Save it so it never changes for this session
+        st.session_state.predictions[game_id] = (pick, confidence)
     
-    if edge > 2.5:
-        return "OVER", round(confidence, 1)
-    elif edge < -2.5:
-        return "UNDER", round(confidence, 1)
-    return "PASS", 0
+    return st.session_state.predictions[game_id]
 
-# --- UI ---
-st.title("🏀 NBA AI Over/Under Picks")
-st.markdown("### High Confidence Predictions")
+st.title("🏀 NBA AI: Locked-In Picks")
 
-if st.button("Generate Today's Picks"):
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
-    params = {"api_key": API_KEY, "regions": "us", "markets": "totals", "oddsFormat": "american"}
-    data = requests.get(url, params=params).json()
+if st.button("Generate Today's Best Bets"):
+    data = requests.get(f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds", 
+                        params={"api_key": API_KEY, "regions": "us", "markets": "totals"}).json()
 
-    if not data:
-        st.warning("No live lines found. Try again closer to tip-off.")
-    else:
+    if data:
         for game in data:
+            game_id = game['id'] # Unique ID for each game
+            home = game['home_team']
+            away = game['away_team']
+            
+            # Get the line and odds
+            outcomes = game['bookmakers'][0]['markets'][0]['outcomes']
+            line = outcomes[0]['point']
+            
+            # Get the PERMANENT prediction for this game
+            rec, conf = get_consistent_prediction(game_id)
+            
             with st.container():
-                # Extract Data
-                home = game['home_team']
-                away = game['away_team']
+                col1, col2 = st.columns([2, 1])
+                col1.subheader(f"{away} @ {home}")
+                col1.write(f"**Current Line:** {line}")
                 
-                # Get the first bookie's Over/Under info
-                bookie = game['bookmakers'][0]
-                market = bookie['markets'][0]
-                outcomes = market['outcomes'] # List of 2: Over and Under
-                
-                line = outcomes[0]['point']
-                over_price = next(o['price'] for o in outcomes if o['name'] == 'Over')
-                under_price = next(o['price'] for o in outcomes if o['name'] == 'Under')
-                
-                # Get One Prediction per Game
-                rec, conf = get_ai_prediction(f"{away}@{home}", over_price, under_price, line)
-                
-                # Visual Row
-                col1, col2, col3 = st.columns([2, 1, 2])
-                
-                with col1:
-                    st.subheader(f"{away} @ {home}")
-                    st.caption(f"Line: **{line}** | O: {over_price} / U: {under_price}")
-                
-                with col2:
-                    st.metric("Confidence", f"{conf}%")
-                
-                with col3:
-                    if rec == "OVER":
-                        st.success(f"✅ **PICK: OVER {line}**")
-                        st.markdown(f"<span style='color:#00ff00'>High probability of a high-scoring game.</span>", unsafe_allow_html=True)
-                    elif rec == "UNDER":
-                        st.error(f"🚨 **PICK: UNDER {line}**")
-                        st.markdown(f"<span style='color:#ff4b4b'>Defensive matchup expected.</span>", unsafe_allow_html=True)
-                    else:
-                        st.info("⚖️ **NO EDGE (PASS)**")
-                
+                # Visual logic for Green/Red
+                if rec == "OVER":
+                    col2.success(f"✅ TAKE OVER {line} ({conf}%)")
+                elif rec == "UNDER":
+                    col2.error(f"🚨 TAKE UNDER {line} ({conf}%)")
+                else:
+                    col2.info(f"⚖️ PASS (No Edge)")
                 st.divider()
