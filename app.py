@@ -1,8 +1,9 @@
 import streamlit as st
 import requests
 
-# --- 1. DESIGN (STRICTLY UNTOUCHED) ---
+# --- 1. DESIGN & URBAN THEME (UNTOUCHED) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
+
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Permanent+Marker&display=swap');
@@ -17,7 +18,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. NBA DATA (2026 PROJECTIONS) ---
+# --- 2. NBA 2026 STATS (PACE & EFFICIENCY) ---
 NBA_STATS = {
     "Oklahoma City Thunder": {"off": 120.2, "def": 107.9, "pace": 102.5},
     "Boston Celtics": {"off": 115.9, "def": 108.6, "pace": 98.2},
@@ -29,7 +30,7 @@ NBA_STATS = {
     "Los Angeles Lakers": {"off": 116.3, "def": 116.2, "pace": 101.1},
 }
 
-# --- 3. CALLBACKS ---
+# --- 3. CORE LOGIC & CALLBACKS ---
 def run_analysis_callback():
     url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
     params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
@@ -37,34 +38,31 @@ def run_analysis_callback():
         res = requests.get(url, params=params)
         if res.status_code == 200:
             st.session_state.game_data = res.json()
-    except: st.error("API Connection Error")
+    except: st.error("API Link Error")
 
 if 'game_data' not in st.session_state: st.session_state.game_data = []
 
-# --- 4. CLEAR INSTRUCTION FORMULA ---
 def get_betting_instruction(away, home, vegas_line, away_fatigue, home_fatigue):
     a = NBA_STATS.get(away, {"off": 115, "def": 115, "pace": 100})
     h = NBA_STATS.get(home, {"off": 115, "def": 115, "pace": 100})
     
-    # Calculate Projected Score
+    # Situational Adjustments
     a_eff = a["off"] - (3.5 if away_fatigue else 0)
     h_eff = h["off"] - (3.5 if home_fatigue else 0)
     matchup_pace = (a["pace"] + h["pace"]) / 2
     
-    # Industry Standard: ((Off1 + Def2)/2 + (Off2 + Def1)/2 + HCA) / 100 * Pace
+    # Projection Formula: (Eff/100) * Pace
     proj = ((a_eff + h["def"] + h_eff + 2.5 + a["def"]) / 200) * matchup_pace
-    
     diff = proj - vegas_line
     
-    # DECISIVE INSTRUCTIONS
-    if diff > 3.5: # AI expects at least 4 points more than Vegas
-        return ("🔥 TAKE THE OVER", proj, 85 + (min(diff, 10) * 1.2))
-    elif diff < -3.5: # AI expects at least 4 points less than Vegas
-        return ("❄️ TAKE THE UNDER", proj, 85 + (min(abs(diff), 10) * 1.2))
-    else:
-        return ("🚫 STAY AWAY", proj, 0)
+    # Value Rating Logic (60% to 95%)
+    value_score = 60 + (min(abs(diff), 12) * 2.8)
+    
+    if diff > 3.2: return ("🔥 TAKE THE OVER", proj, value_score)
+    elif diff < -3.2: return ("❄️ TAKE THE UNDER", proj, value_score)
+    else: return ("🚫 STAY AWAY", proj, 0)
 
-# --- 5. UI ---
+# --- 4. MAIN UI ---
 st.markdown('<div class="header-container"><div class="graffiti-title-english">NBA SHARP AI</div><div class="graffiti-title-arabic">الرهان الذكي</div></div>', unsafe_allow_html=True)
 
 st.sidebar.markdown("<h1 style='color:#ff4b4b; font-family:\"Aref Ruqaa\"; text-align:center;'>الإعدادات</h1>", unsafe_allow_html=True)
@@ -76,23 +74,26 @@ if st.session_state.game_data:
         try: line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
         except: continue
         
-        with st.sidebar.expander(f"Game Context: {a} @ {h}"):
+        with st.sidebar.expander(f"Context: {a} @ {h}"):
             af = st.checkbox(f"{a} Tired?", key=f"af_{game['id']}")
             hf = st.checkbox(f"{h} Tired?", key=f"hf_{game['id']}")
         
-        call, proj, conf = get_betting_instruction(a, h, line, af, hf)
+        call, proj, value = get_betting_instruction(a, h, line, af, hf)
         
         with st.container():
             col1, col2, col3 = st.columns([3, 2, 2])
             with col1:
                 st.markdown(f"## {a} vs {h}")
-                st.markdown(f"<span style='color:#58a6ff;'>Vegas Line:</span> **{line}**", unsafe_allow_html=True)
+                st.caption(f"Vegas Set: {line}")
             with col2:
-                st.metric("AI Prediction", f"{proj:.1f}")
+                st.metric("AI Projection", f"{proj:.1f}")
             with col3:
                 if "OVER" in call: st.success(call)
                 elif "UNDER" in call: st.error(call)
                 else: st.info(call)
-                if conf > 0: st.caption(f"Confidence: {conf:.1f}%")
+                
+                if value > 0:
+                    st.markdown(f"**Value Rating: {value:.1f}%**")
+                    if value > 90: st.markdown("⚠️ *High Value Detected*")
 
 st.sidebar.button("WIPE MEMORY", on_click=lambda: st.session_state.update({"game_data": []}))
