@@ -56,14 +56,12 @@ NBA_STATS = {
 # --- 3. CORE FUNCTIONS (CALLBACKS) ---
 
 def run_analysis_callback():
-    """Fetches new odds from the API and saves to session state."""
     url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
     params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
     try:
         res = requests.get(url, params=params)
         if res.status_code == 200:
             st.session_state.game_data = res.json()
-            # Clear old picks to allow fresh calculations
             st.session_state.locked_picks = {}
         else:
             st.error(f"API Error: {res.status_code}")
@@ -71,31 +69,45 @@ def run_analysis_callback():
         st.error(f"Connection Failed: {e}")
 
 def wipe_memory_callback():
-    """Resets all data and predictions."""
     st.session_state.game_data = []
     st.session_state.locked_picks = {}
 
-# Initialize Session State
 if 'game_data' not in st.session_state:
     st.session_state.game_data = []
 if 'locked_picks' not in st.session_state:
     st.session_state.locked_picks = {}
 
+# --- 4. SMARTER SHARP LOGIC ---
 def calculate_sharp_pick(game_id, away, home, line):
     if game_id in st.session_state.locked_picks:
         return st.session_state.locked_picks[game_id]
+        
     a_stats = NBA_STATS.get(away, {"off": 115, "def": 115})
     h_stats = NBA_STATS.get(home, {"off": 115, "def": 115})
+    
+    # Raw Math
     projection = ((a_stats["off"] + h_stats["def"]) / 2) + ((h_stats["off"] + a_stats["def"]) / 2)
-    edge = projection - line
-    conf = min(abs(edge) * 15, 99.9)
-    if edge > 2.0: res = ("✅ SHARP OVER", conf, projection)
-    elif edge < -2.0: res = ("🚨 SHARP UNDER", conf, projection)
-    else: res = ("⚖️ PASS", 0, projection)
+    edge = abs(projection - line)
+    
+    # NEW: CALIBRATED CONFIDENCE (Logarithmic Feel)
+    # A 3-point gap is now roughly 65%. To get to 95%, you need an 8+ point gap.
+    if edge < 1.0:
+        conf = edge * 25 
+    else:
+        conf = 55 + (min(edge, 10) * 4.2)
+        
+    # NEW: 2.5 POINT THRESHOLD (Stronger Filter)
+    if (projection - line) > 2.5:
+        res = ("✅ SHARP OVER", conf, projection)
+    elif (projection - line) < -2.5:
+        res = ("🚨 SHARP UNDER", conf, projection)
+    else:
+        res = ("⚖️ PASS (NO EDGE)", 0, projection)
+        
     st.session_state.locked_picks[game_id] = res
     return res
 
-# --- 4. THE UI ---
+# --- 5. THE UI ---
 st.markdown("""
     <div class="header-container">
         <div class="graffiti-title-english">NBA SHARP AI</div>
@@ -103,7 +115,6 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# Main Action Button with on_click callback
 st.button("RUN ANALYSIS - ابدأ التحليل", on_click=run_analysis_callback)
 
 if st.session_state.game_data:
@@ -129,6 +140,6 @@ if st.session_state.game_data:
                 else: st.info(label)
                 st.caption(f"Sharp Level: {conf:.1f}%")
 
-# SIDEBAR: Settings with on_click callback
+# SIDEBAR: Settings
 st.sidebar.markdown("<h1 style='color:#ff4b4b; font-family:\"Aref Ruqaa\"; text-align:center;'>الإعدادات</h1>", unsafe_allow_html=True)
 st.sidebar.button("WIPE MEMORY", on_click=wipe_memory_callback)
