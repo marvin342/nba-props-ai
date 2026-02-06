@@ -1,69 +1,83 @@
 import streamlit as st
 import requests
 
-# --- 1. THE "NO-WHITE" URBAN OVERRIDE ---
+# --- 1. URBAN THEME OVERRIDE (ZOOMED OUT & BALANCED) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Permanent+Marker&display=swap');
 
-    /* Kill all white space */
+    /* Kill white space & adjust overall zoom feel */
     .stApp {
         background: #05070a !important;
         color: #ffffff;
     }
 
-    [data-testid="stSidebar"] {
-        background-color: #0c0f16 !important;
-        border-right: 4px solid #ff4b4b;
+    /* Reduce the main container width to 'zoom out' the content */
+    .block-container {
+        max-width: 1000px !important;
+        padding-top: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
     }
 
-    /* THE UPDATED NBA SHARP AI HEADER */
+    [data-testid="stSidebar"] {
+        background-color: #0c0f16 !important;
+        border-right: 2px solid #ff4b4b;
+    }
+
+    /* THE UPDATED NBA SHARP AI HEADER (SCALED DOWN) */
     .header-container {
         display: flex;
         justify-content: center;
         align-items: center;
-        gap: 20px;
-        padding: 40px 0;
-        flex-wrap: wrap;
+        gap: 25px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #1c2128;
+        margin-bottom: 30px;
     }
 
     .graffiti-title-english {
         font-family: 'Permanent Marker', cursive;
-        font-size: clamp(30px, 6vw, 70px);
+        font-size: 38px; /* Reduced from 70px */
         color: #ffffff;
-        text-shadow: 4px 4px 0px #ff4b4b, -2px -2px 0px #58a6ff;
+        text-shadow: 3px 3px 0px #ff4b4b, -1px -1px 0px #58a6ff;
     }
 
     .graffiti-title-arabic {
         font-family: 'Aref Ruqaa', serif;
-        font-size: clamp(30px, 6vw, 70px);
+        font-size: 38px; /* Reduced from 70px */
         color: #ffffff;
-        text-shadow: 4px 4px 0px #58a6ff, -2px -2px 0px #ff4b4b;
-        direction: rtl; /* Ensures proper Arabic flow */
+        text-shadow: 3px 3px 0px #58a6ff, -1px -1px 0px #ff4b4b;
+        direction: rtl;
     }
 
-    /* Card Styling */
+    /* Card Styling (Slimmer & Cleaners) */
     [data-testid="stVerticalBlock"] > div:has(div.stMetric) {
         background-color: #11151c !important;
-        border-radius: 15px;
-        border-left: 10px solid #ff4b4b;
-        border-right: 10px solid #58a6ff;
-        padding: 25px;
-        box-shadow: 0px 15px 35px rgba(0,0,0,0.9);
-        margin-bottom: 25px;
+        border-radius: 12px;
+        border-left: 6px solid #ff4b4b;
+        border-right: 6px solid #58a6ff;
+        padding: 20px; /* Reduced padding */
+        box-shadow: 0px 8px 20px rgba(0,0,0,0.5);
+        margin-bottom: 15px; /* Tighter spacing */
+    }
+    
+    /* Shrink the game titles */
+    h2 {
+        font-size: 20px !important;
+        margin-bottom: 5px !important;
     }
 
     .stButton>button {
         background: linear-gradient(90deg, #ff4b4b 0%, #58a6ff 100%) !important;
         color: white !important;
         font-family: 'Permanent Marker', cursive !important;
-        font-size: 28px !important;
-        border: 3px solid #ffffff !important;
-        border-radius: 12px !important;
-        height: 5rem !important;
-        width: 100% !important;
+        font-size: 20px !important; /* Scaled down */
+        border: 2px solid #ffffff !important;
+        border-radius: 8px !important;
+        height: 3.5rem !important; /* Scaled down from 5rem */
     }
     </style>
     """, unsafe_allow_html=True)
@@ -105,7 +119,7 @@ def calculate_sharp_pick(game_id, away, home, line):
     return res
 
 # --- 4. THE UI ---
-# UPDATED TITLE: English on Left, Arabic on Right
+# UPDATED TITLE: English on Left, Arabic on Right (Smaller/Zoomed Out)
 st.markdown("""
     <div class="header-container">
         <div class="graffiti-title-english">NBA SHARP AI</div>
