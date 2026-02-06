@@ -28,7 +28,6 @@ st.markdown("""
         background: transparent;
         color: #ffffff;
         position: relative;
-        /* Red and Blue layered spray-paint effect */
         text-shadow: 
             5px 5px 0px #ff4b4b, 
             -4px -4px 0px #58a6ff,
@@ -103,7 +102,6 @@ def calculate_sharp_pick(game_id, away, home, line):
         return st.session_state.locked_picks[game_id]
     a_stats = NBA_STATS.get(away, {"off": 115, "def": 115})
     h_stats = NBA_STATS.get(home, {"off": 115, "def": 115})
-    # Pro Formula: (Away Off + Home Def)/2 + (Home Off + Away Def)/2
     projection = ((a_stats["off"] + h_stats["def"]) / 2) + ((h_stats["off"] + a_stats["def"]) / 2)
     edge = projection - line
     conf = min(abs(edge) * 15, 99.9)
@@ -114,7 +112,6 @@ def calculate_sharp_pick(game_id, away, home, line):
     return res
 
 # --- 4. THE UI ---
-# THE NEW URBAN TITLE
 st.markdown('<div class="graffiti-header">الرهان الذكي SHARP AI</div>', unsafe_allow_html=True)
 
 if st.button("STREET ANALYSIS - حلل البيانات"):
@@ -124,7 +121,6 @@ if st.button("STREET ANALYSIS - حلل البيانات"):
     if res.status_code == 200:
         st.session_state.game_data = res.json()
 
-# Display Cards
 if st.session_state.game_data:
     for game in st.session_state.game_data:
         game_id, h, a = game['id'], game['home_team'], game['away_team']
@@ -139,14 +135,16 @@ if st.session_state.game_data:
                 st.markdown(f"## {a} vs {h}")
                 st.markdown(f"<span style='color:#58a6ff;'>Vegas Market:</span> **{line}**", unsafe_allow_html=True)
             with col2:
-                st.metric("STREET PROJ", f"{proj:.1f}")
+                # UPDATED: Changed label to AI Projection
+                st.metric("AI Projection", f"{proj:.1f}")
             with col3:
                 if "OVER" in label: st.success(label)
                 elif "UNDER" in label: st.error(label)
                 else: st.info(label)
                 st.caption(f"Confidence: {conf:.1f}%")
 
-st.sidebar.markdown("<h2 style='color:#ff4b4b; font-family:\"Permanent Marker\";'>STREET SETTINGS</h2>", unsafe_allow_html=True)
+# SIDEBAR UPDATED: Header is now just "الإعدادات" (Settings)
+st.sidebar.markdown("<h2 style='color:#ff4b4b; font-family:\"Aref Ruqaa\";'>الإعدادات</h2>", unsafe_allow_html=True)
 if st.sidebar.button("WIPE MEMORY"):
     st.session_state.locked_picks = {}
     st.rerun()
