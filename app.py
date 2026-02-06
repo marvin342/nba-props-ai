@@ -1,39 +1,50 @@
 import streamlit as st
 import requests
 
-# --- 1. URBAN THEME OVERRIDE (NO WHITE GAPS) ---
+# --- 1. THE "NO-WHITE" URBAN OVERRIDE ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Permanent+Marker&display=swap');
 
-    /* Kill all default white/light space across the entire app */
+    /* Kill all white space */
     .stApp {
         background: #05070a !important;
         color: #ffffff;
     }
 
-    /* Target the sidebar specifically to match the dark urban theme */
     [data-testid="stSidebar"] {
         background-color: #0c0f16 !important;
         border-right: 4px solid #ff4b4b;
     }
 
-    /* THE CALLIGRAFFITI TITLE */
-    .graffiti-header {
-        font-family: 'Aref Ruqaa', serif;
-        font-size: clamp(40px, 8vw, 80px);
-        text-align: center;
+    /* THE UPDATED NBA SHARP AI HEADER */
+    .header-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 20px;
         padding: 40px 0;
-        text-shadow: 
-            5px 5px 0px #ff4b4b, 
-            -4px -4px 0px #58a6ff,
-            0 0 15px rgba(255, 75, 75, 0.5);
-        filter: drop-shadow(0px 10px 10px rgba(0,0,0,0.8));
+        flex-wrap: wrap;
     }
 
-    /* Card Styling with Neon Red/Blue spray-paint edges */
+    .graffiti-title-english {
+        font-family: 'Permanent Marker', cursive;
+        font-size: clamp(30px, 6vw, 70px);
+        color: #ffffff;
+        text-shadow: 4px 4px 0px #ff4b4b, -2px -2px 0px #58a6ff;
+    }
+
+    .graffiti-title-arabic {
+        font-family: 'Aref Ruqaa', serif;
+        font-size: clamp(30px, 6vw, 70px);
+        color: #ffffff;
+        text-shadow: 4px 4px 0px #58a6ff, -2px -2px 0px #ff4b4b;
+        direction: rtl; /* Ensures proper Arabic flow */
+    }
+
+    /* Card Styling */
     [data-testid="stVerticalBlock"] > div:has(div.stMetric) {
         background-color: #11151c !important;
         border-radius: 15px;
@@ -44,13 +55,6 @@ st.markdown("""
         margin-bottom: 25px;
     }
 
-    /* Metric Label styling for clarity */
-    [data-testid="stMetricLabel"] {
-        color: #58a6ff !important;
-        font-weight: bold;
-    }
-
-    /* Large Urban Action Button */
     .stButton>button {
         background: linear-gradient(90deg, #ff4b4b 0%, #58a6ff 100%) !important;
         color: white !important;
@@ -60,16 +64,11 @@ st.markdown("""
         border-radius: 12px !important;
         height: 5rem !important;
         width: 100% !important;
-        transition: 0.2s;
-    }
-    .stButton>button:hover {
-        transform: scale(1.02);
-        box-shadow: 0 0 20px #58a6ff;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. NBA 2026 SHARP DATA (STAYS UNTOUCHED) ---
+# --- 2. NBA 2026 SHARP DATA ---
 NBA_STATS = {
     "Oklahoma City Thunder": {"off": 120.2, "def": 107.9},
     "Boston Celtics": {"off": 115.9, "def": 108.6},
@@ -85,7 +84,7 @@ NBA_STATS = {
     "Dallas Mavericks": {"off": 113.8, "def": 116.5},
 }
 
-# --- 3. SESSION LOGIC (NO DELETIONS) ---
+# --- 3. SESSION LOGIC ---
 if 'game_data' not in st.session_state:
     st.session_state.game_data = []
 if 'locked_picks' not in st.session_state:
@@ -106,10 +105,15 @@ def calculate_sharp_pick(game_id, away, home, line):
     return res
 
 # --- 4. THE UI ---
-st.markdown('<div class="graffiti-header">الرهان الذكي SHARP AI</div>', unsafe_allow_html=True)
+# UPDATED TITLE: English on Left, Arabic on Right
+st.markdown("""
+    <div class="header-container">
+        <div class="graffiti-title-english">NBA SHARP AI</div>
+        <div class="graffiti-title-arabic">الرهان الذكي</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 if st.button("RUN ANALYSIS - ابدأ التحليل"):
-    # Using the same Sharp API key from your logic
     url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
     params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
     res = requests.get(url, params=params)
@@ -130,7 +134,6 @@ if st.session_state.game_data:
                 st.markdown(f"## {a} vs {h}")
                 st.markdown(f"<span style='color:#58a6ff;'>Vegas Market:</span> **{line}**", unsafe_allow_html=True)
             with col2:
-                # FIXED: Metric is now explicitly AI Projection
                 st.metric("AI Projection", f"{proj:.1f}")
             with col3:
                 if "OVER" in label: st.success(label)
@@ -138,7 +141,6 @@ if st.session_state.game_data:
                 else: st.info(label)
                 st.caption(f"Sharp Level: {conf:.1f}%")
 
-# SIDEBAR FIXED: Header is now just Arabic "الإعدادات"
 st.sidebar.markdown("<h1 style='color:#ff4b4b; font-family:\"Aref Ruqaa\"; text-align:center;'>الإعدادات</h1>", unsafe_allow_html=True)
 if st.sidebar.button("WIPE MEMORY"):
     st.session_state.locked_picks = {}
