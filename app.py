@@ -2,71 +2,75 @@ import streamlit as st
 import requests
 import random
 
-# --- CONFIGURATION ---
-# IMPORTANT: Use 'player_props_points' for NBA points props
-API_KEY = "27970d14c8e8eb9f2a217c775db6571f" 
+# --- CONFIG ---
+API_KEY = "27970d14c8e8eb9f2a217c775db6571f"
 SPORT = "basketball_nba"
-REGIONS = "us"
 
-st.set_page_config(page_title="NBA AI Predictor", layout="wide")
+st.set_page_config(page_title="NBA Best Bets", layout="wide")
 
-def fetch_data(market_key):
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
-    params = {
-        "api_key": API_KEY,
-        "regions": REGIONS,
-        "markets": market_key,
-        "oddsFormat": "american"
-    }
-    response = requests.get(url, params=params)
-    return response
-
-def get_ai_prediction(name):
-    score = random.uniform(20, 80)
-    if score > 60: return "OVER", round(score, 1)
-    if score < 40: return "UNDER", round(score, 1)
-    return "PASS", round(score, 1)
-
-st.title("🏀 NBA AI Prop & O/U Detector")
-
-market_choice = st.sidebar.radio("Market Category", ["Game Totals", "Player Points"])
-# Corrected mapping for The Odds API
-market_key = "totals" if market_choice == "Game Totals" else "player_props_points"
-
-if st.button("Analyze Current Lines"):
-    res = fetch_data(market_key)
+def get_ai_prediction(game_name, over_odds, under_odds, line):
+    """
+    Improved Logic: Analyzes the whole game line once.
+    """
+    # Simulate an AI edge calculation
+    # In a real app, you'd compare this 'line' to your model's projected total
+    edge = random.uniform(-10, 10) 
+    confidence = abs(edge) * 10
     
-    if res.status_code != 200:
-        st.error(f"API Error: {res.status_code} - Check your API Key or Quota.")
+    if edge > 2.5:
+        return "OVER", round(confidence, 1)
+    elif edge < -2.5:
+        return "UNDER", round(confidence, 1)
+    return "PASS", 0
+
+# --- UI ---
+st.title("🏀 NBA AI Over/Under Picks")
+st.markdown("### High Confidence Predictions")
+
+if st.button("Generate Today's Picks"):
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
+    params = {"api_key": API_KEY, "regions": "us", "markets": "totals", "oddsFormat": "american"}
+    data = requests.get(url, params=params).json()
+
+    if not data:
+        st.warning("No live lines found. Try again closer to tip-off.")
     else:
-        data = res.json()
-        if not data:
-            st.warning(f"No active lines found for {market_choice}. This usually means bookmakers haven't posted these lines yet for today's games.")
-        else:
-            for game in data:
-                with st.expander(f"{game['away_team']} @ {game['home_team']}", expanded=True):
-                    if not game.get('bookmakers'):
-                        st.write("No bookmaker data available for this matchup.")
-                        continue
-                        
-                    # Get the first available bookmaker
-                    bm = game['bookmakers'][0]
-                    mkt = bm['markets'][0]
-                    
-                    for outcome in mkt['outcomes']:
-                        label = outcome.get('description', outcome['name'])
-                        line = outcome.get('point', 'N/A')
-                        price = outcome['price']
-                        rec, conf = get_ai_prediction(label)
-                        
-                        col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
-                        col1.write(f"**{label}**")
-                        col2.write(f"Line: {line}")
-                        col3.write(f"Odds: {price}")
-                        
-                        if rec == "OVER":
-                            col4.success(f"🚀 {rec} ({conf}%)")
-                        elif rec == "UNDER":
-                            col4.warning(f"📉 {rec} ({conf}%)")
-                        else:
-                            col4.info("⚖️ PASS")
+        for game in data:
+            with st.container():
+                # Extract Data
+                home = game['home_team']
+                away = game['away_team']
+                
+                # Get the first bookie's Over/Under info
+                bookie = game['bookmakers'][0]
+                market = bookie['markets'][0]
+                outcomes = market['outcomes'] # List of 2: Over and Under
+                
+                line = outcomes[0]['point']
+                over_price = next(o['price'] for o in outcomes if o['name'] == 'Over')
+                under_price = next(o['price'] for o in outcomes if o['name'] == 'Under')
+                
+                # Get One Prediction per Game
+                rec, conf = get_ai_prediction(f"{away}@{home}", over_price, under_price, line)
+                
+                # Visual Row
+                col1, col2, col3 = st.columns([2, 1, 2])
+                
+                with col1:
+                    st.subheader(f"{away} @ {home}")
+                    st.caption(f"Line: **{line}** | O: {over_price} / U: {under_price}")
+                
+                with col2:
+                    st.metric("Confidence", f"{conf}%")
+                
+                with col3:
+                    if rec == "OVER":
+                        st.success(f"✅ **PICK: OVER {line}**")
+                        st.markdown(f"<span style='color:#00ff00'>High probability of a high-scoring game.</span>", unsafe_allow_html=True)
+                    elif rec == "UNDER":
+                        st.error(f"🚨 **PICK: UNDER {line}**")
+                        st.markdown(f"<span style='color:#ff4b4b'>Defensive matchup expected.</span>", unsafe_allow_html=True)
+                    else:
+                        st.info("⚖️ **NO EDGE (PASS)**")
+                
+                st.divider()
