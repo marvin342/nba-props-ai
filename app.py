@@ -1,81 +1,108 @@
 import streamlit as st
 import requests
 
-# --- 1. REAL 2026 SEASON DATA (Sharp Stats) ---
-# PPG = Points Scored | PAPG = Points Allowed
-NBA_STATS_2026 = {
-    "Oklahoma City Thunder": {"ppg": 120.2, "papg": 107.9},
-    "Boston Celtics": {"ppg": 115.9, "papg": 108.6},
-    "Detroit Pistons": {"ppg": 117.5, "papg": 109.9},
-    "San Antonio Spurs": {"ppg": 116.9, "papg": 111.8},
-    "Denver Nuggets": {"ppg": 120.1, "papg": 116.2},
-    "Miami Heat": {"ppg": 119.9, "papg": 118.0},
-    "New York Knicks": {"ppg": 118.2, "papg": 112.1},
-    "Dallas Mavericks": {"ppg": 113.8, "papg": 116.5},
-    "Phoenix Suns": {"ppg": 114.1, "papg": 111.6},
-    "Golden State Warriors": {"ppg": 116.2, "papg": 114.0},
-    "Philadelphia 76ers": {"ppg": 116.8, "papg": 115.3},
-    "Los Angeles Lakers": {"ppg": 116.3, "papg": 116.2},
-    "Minnesota Timberwolves": {"ppg": 119.6, "papg": 114.8},
+# --- 1. 2026 REAL-WORLD SHARP DATA ---
+# Source: 2025-26 Season Stats as of Feb 5, 2026
+NBA_STATS = {
+    "Oklahoma City Thunder": {"off": 120.2, "def": 107.9},
+    "Boston Celtics": {"off": 115.9, "def": 108.6},
+    "Detroit Pistons": {"off": 117.5, "def": 109.9},
+    "New York Knicks": {"off": 118.2, "def": 112.1},
+    "San Antonio Spurs": {"off": 116.9, "def": 111.8},
+    "Minnesota Timberwolves": {"off": 119.6, "def": 114.8},
+    "Philadelphia 76ers": {"off": 116.8, "def": 115.3},
+    "Los Angeles Lakers": {"off": 116.3, "def": 116.2},
+    "Phoenix Suns": {"off": 114.1, "def": 111.6},
+    "Golden State Warriors": {"off": 116.2, "def": 114.0},
+    "Miami Heat": {"off": 119.9, "def": 118.0},
+    "Dallas Mavericks": {"off": 113.8, "def": 116.5},
+    "Houston Rockets": {"off": 115.5, "def": 110.1},
+    "Denver Nuggets": {"off": 120.1, "def": 116.2},
 }
 
-# --- 2. LOCKING THE PREDICTIONS (Session State) ---
+# --- 2. SETUP & INITIALIZATION ---
+st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀")
+API_KEY = "27970d14c8e8eb9f2a217c775db6571f" # Your Key
+
+# Initialize session state to store data and prevent "randomness"
+if 'game_data' not in st.session_state:
+    st.session_state.game_data = []
 if 'locked_picks' not in st.session_state:
     st.session_state.locked_picks = {}
 
-def get_sharp_pick(game_id, away, home, line):
-    # If we already made this pick, return it immediately (No changes!)
+# --- 3. SHARP LOGIC FUNCTION ---
+def calculate_sharp_pick(game_id, away, home, line):
+    """Uses a projected score formula to find an edge against Vegas."""
     if game_id in st.session_state.locked_picks:
         return st.session_state.locked_picks[game_id]
 
-    # Get stats (default to league average 115 if team not in list)
-    a_stats = NBA_STATS_2026.get(away, {"ppg": 115, "papg": 115})
-    h_stats = NBA_STATS_2026.get(home, {"ppg": 115, "papg": 115})
+    # Get team stats (default to league average 115 if not found)
+    a_off = NBA_STATS.get(away, {"off": 115})["off"]
+    a_def = NBA_STATS.get(away, {"def": 115})["def"]
+    h_off = NBA_STATS.get(home, {"off": 115})["off"]
+    h_def = NBA_STATS.get(home, {"def": 115})["def"]
 
-    # SHARP FORMULA: Projected score based on Offense vs Defense
-    proj_away = (a_stats["ppg"] + h_stats["papg"]) / 2
-    proj_home = (h_stats["ppg"] + a_stats["papg"]) / 2
-    total_projection = proj_away + proj_home
-    
-    # Calculate the "Edge" (Difference from the bookie's line)
-    diff = total_projection - line
-    confidence = min(abs(diff) * 12, 99.9) # Scale confidence by the edge size
+    # SHARP FORMULA: (Away Off vs Home Def + Home Off vs Away Def) / 2
+    projection = ((a_off + h_def) / 2) + ((h_off + a_def) / 2)
+    edge = projection - line
+    confidence = min(abs(edge) * 12.5, 99.8) # Stronger edge = higher %
 
-    if diff > 2.5:
-        pick = ("✅ SHARP OVER", confidence, total_projection)
-    elif diff < -2.5:
-        pick = ("🚨 SHARP UNDER", confidence, total_projection)
+    if edge > 2.0:
+        result = ("✅ SHARP OVER", confidence, projection)
+    elif edge < -2.0:
+        result = ("🚨 SHARP UNDER", confidence, projection)
     else:
-        pick = ("⚖️ PASS (No Edge)", 0, total_projection)
+        result = ("⚖️ PASS (No Edge)", 0, projection)
 
-    # Save to session so it never changes
-    st.session_state.locked_picks[game_id] = pick
-    return pick
+    st.session_state.locked_picks[game_id] = result
+    return result
 
-# --- 3. DISPLAY LOGIC ---
-st.title("🏀 NBA Sharp Predictor (2026 Stats)")
+# --- 4. USER INTERFACE ---
+st.title("🏀 NBA Sharp AI Predictor")
+st.markdown("Uses actual 2026 Offensive/Defensive ratings to find market edges.")
 
-if st.button("Generate Locked-In Picks"):
-    # (Your existing API call to The Odds API goes here)
-    # data = requests.get(...).json()
-    
-    # Example loop for display:
-    for game in data:
+if st.button("Generate Today's Sharp Picks"):
+    with st.spinner("Fetching latest lines..."):
+        url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
+        params = {"api_key": API_KEY, "regions": "us", "markets": "totals"}
+        response = requests.get(url, params=params)
+        
+        if response.status_code == 200:
+            st.session_state.game_data = response.json()
+        else:
+            st.error(f"API Error: {response.status_code}. Check your API Key!")
+
+# --- 5. DISPLAY RESULTS ---
+if st.session_state.game_data:
+    for game in st.session_state.game_data:
         game_id = game['id']
         home = game['home_team']
         away = game['away_team']
-        line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
         
-        label, conf, proj = get_sharp_pick(game_id, away, home, line)
-        
-        with st.expander(f"{away} @ {home}", expanded=True):
-            c1, c2 = st.columns(2)
-            c1.metric("Betting Line", line)
-            c1.metric("AI Projection", f"{proj:.1f}")
+        # Extract the line (point) safely
+        try:
+            market = game['bookmakers'][0]['markets'][0]
+            line = market['outcomes'][0]['point']
+        except (IndexError, KeyError):
+            continue
+
+        # Get the pick (it stays the same now!)
+        label, conf, proj = calculate_sharp_pick(game_id, away, home, line)
+
+        with st.container(border=True):
+            col1, col2 = st.columns([2, 1])
+            col1.subheader(f"{away} @ {home}")
+            col1.write(f"**Vegas Line:** {line} | **AI Projection:** {proj:.1f}")
             
             if "OVER" in label:
-                c2.success(f"{label}\n\nConfidence: {conf:.1f}%")
+                col2.success(f"**{label}**\n\n{conf:.1f}% Sharpness")
             elif "UNDER" in label:
-                c2.error(f"{label}\n\nConfidence: {conf:.1f}%")
+                col2.error(f"**{label}**\n\n{conf:.1f}% Sharpness")
             else:
-                c2.info(label)
+                col2.info(f"**{label}**")
+else:
+    st.info("No games loaded yet. Click the button above.")
+
+if st.sidebar.button("Reset AI Memory"):
+    st.session_state.locked_picks = {}
+    st.rerun()
