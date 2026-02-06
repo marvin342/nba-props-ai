@@ -1,55 +1,70 @@
 import streamlit as st
 import requests
 
-# --- 1. THE "GRAFFITI" STYLING ---
+# --- 1. FULL OVERRIDE (REMOVE ALL WHITE) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
-# This CSS injects the Arabic urban street style
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Reem+Kufi:wght@400;700&display=swap');
 
+    /* This targets the entire background of the app */
     .stApp {
-        background: radial-gradient(circle at top left, #0e1117, #1c1c2b);
+        background: #0e1117 !important; /* Pure Dark - No White */
         color: #ffffff;
     }
 
-    /* Graffiti Card Style */
+    /* This targets the Sidebar to remove white background */
+    [data-testid="stSidebar"] {
+        background-color: #161b22 !important;
+        border-right: 2px solid #ff4b4b;
+    }
+    
+    /* Remove padding at the top to make it look tighter */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 0rem !important;
+    }
+
+    /* Graffiti Card Style with Red/Blue Neon */
     [data-testid="stVerticalBlock"] > div:has(div.stMetric) {
-        background-color: rgba(30, 33, 48, 0.8);
+        background-color: #1c2128 !important;
         border-radius: 20px;
         padding: 25px;
-        border-left: 5px solid #ff4b4b; /* Red Accent */
-        border-right: 5px solid #58a6ff; /* Blue Accent */
-        box-shadow: 0px 4px 15px rgba(0,0,0,0.5);
-        margin-bottom: 20px;
+        border-left: 6px solid #ff4b4b; /* Red Street */
+        border-right: 6px solid #58a6ff; /* Blue Street */
+        box-shadow: 10px 10px 20px rgba(0,0,0,0.6);
+        margin-bottom: 25px;
     }
 
-    /* Heading Arabic Style */
+    /* Red and Blue Calligraphy Headers */
     h1, h2, h3 {
         font-family: 'Aref Ruqaa', serif !important;
-        text-shadow: 2px 2px #ff4b4b, -1px -1px #58a6ff;
-        letter-spacing: 1px;
+        color: #ffffff !important;
+        text-shadow: 3px 3px #ff4b4b;
     }
 
-    /* Blue and Red Writing for labels */
-    .blue-tag { color: #58a6ff; font-weight: bold; font-family: 'Reem Kufi'; }
-    .red-tag { color: #ff4b4b; font-weight: bold; font-family: 'Reem Kufi'; }
-
-    /* Button: Urban Style */
+    /* Button: Neon Pulse Style */
     .stButton>button {
-        background: linear-gradient(45deg, #ff4b4b, #58a6ff);
-        border: 2px solid #ffffff;
-        color: white;
-        font-family: 'Aref Ruqaa';
-        font-size: 20px;
-        border-radius: 50px;
-        box-shadow: 0px 0px 15px rgba(88, 166, 255, 0.4);
+        background: linear-gradient(90deg, #ff4b4b, #58a6ff) !important;
+        border: none !important;
+        color: white !important;
+        font-family: 'Aref Ruqaa' !important;
+        font-size: 24px !important;
+        border-radius: 12px !important;
+        height: 3.5rem !important;
+        width: 100% !important;
+        box-shadow: 0px 0px 20px rgba(255, 75, 75, 0.4);
+    }
+    
+    .stButton>button:hover {
+        box-shadow: 0px 0px 30px rgba(88, 166, 255, 0.6);
+        transform: translateY(-2px);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. DATA (NO CHANGES) ---
+# --- 2. DATA (STAYS SHARP) ---
 NBA_STATS = {
     "Oklahoma City Thunder": {"off": 120.2, "def": 107.9},
     "Boston Celtics": {"off": 115.9, "def": 108.6},
@@ -67,7 +82,7 @@ NBA_STATS = {
     "Denver Nuggets": {"off": 120.1, "def": 116.2},
 }
 
-# --- 3. SESSION STATE & LOGIC (NO CHANGES) ---
+# --- 3. SESSION STATE & LOGIC (NO DELETIONS) ---
 if 'game_data' not in st.session_state:
     st.session_state.game_data = []
 if 'locked_picks' not in st.session_state:
@@ -93,17 +108,16 @@ def calculate_sharp_pick(game_id, away, home, line):
     return result
 
 # --- 4. THE UI LAYOUT ---
-st.title("🏀 NBA SHARP AI - الرهان الذكي")
-st.markdown("<p style='text-align: right; font-family:\"Reem Kufi\"; color:#58a6ff;'>تحليل البيانات الحقيقية لعام ٢٠٢٦</p>", unsafe_allow_html=True)
+st.title("🏀 الرهان الذكي - SHARP GRAFFITI")
+st.markdown("<h4 style='color: #58a6ff; font-family: \"Reem Kufi\";'>NBA Season 2026 Analysis</h4>", unsafe_allow_html=True)
 
-if st.button("GENERATE PICKS - ابدأ المراهنة"):
-    with st.spinner("Calculating..."):
-        API_KEY = "27970d14c8e8eb9f2a217c775db6571f"
-        url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
-        params = {"api_key": API_KEY, "regions": "us", "markets": "totals"}
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            st.session_state.game_data = response.json()
+if st.button("RUN ANALYSIS - ابدأ"):
+    API_KEY = "27970d14c8e8eb9f2a217c775db6571f"
+    url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
+    params = {"api_key": API_KEY, "regions": "us", "markets": "totals"}
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        st.session_state.game_data = response.json()
 
 if st.session_state.game_data:
     for game in st.session_state.game_data:
@@ -118,20 +132,22 @@ if st.session_state.game_data:
             c1, c2, c3 = st.columns([3, 2, 2])
             with c1:
                 st.markdown(f"### {away} vs {home}")
-                st.markdown(f"<span class='blue-tag'>Vegas Total:</span> **{line}**", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:#58a6ff;'>Line:</span> **{line}**", unsafe_allow_html=True)
             with c2:
-                st.metric("PROJECTION - التحليل", f"{proj:.1f}")
+                st.metric("PROJECTION", f"{proj:.1f}")
             with c3:
                 if "OVER" in label:
-                    st.success(f"**{label}**\n\n{conf:.1f}% SHARP")
+                    st.success(f"**{label}**")
+                    st.caption(f"{conf:.1f}% Match")
                 elif "UNDER" in label:
-                    st.error(f"**{label}**\n\n{conf:.1f}% SHARP")
+                    st.error(f"**{label}**")
+                    st.caption(f"{conf:.1f}% Match")
                 else:
                     st.info(label)
 else:
-    st.info("No games loaded. Hit the graffiti button above! 🚀")
+    st.markdown("<p style='color:#888;'>Ready for the street? Press the button above.</p>", unsafe_allow_html=True)
 
-st.sidebar.markdown("<h2 style='color:#ff4b4b;'>Settings - الإعدادات</h2>", unsafe_allow_html=True)
-if st.sidebar.button("RESET MEMORY - مسح"):
+st.sidebar.markdown("<h2 style='color:#ff4b4b; font-family:\"Aref Ruqaa\";'>SETTINGS الإعدادات</h2>", unsafe_allow_html=True)
+if st.sidebar.button("RESET MEMORY"):
     st.session_state.locked_picks = {}
     st.rerun()
