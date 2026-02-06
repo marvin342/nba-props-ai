@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-# --- 1. URBAN THEME OVERRIDE ---
+# --- 1. THEME & HEADER (DESIGN UNTOUCHED) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
@@ -18,16 +18,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. NBA 2026 SHARP DATA ---
+# --- 2. UPDATED DATA (NOW WITH PACE) ---
+# Pace = Possessions per 48 mins. League Average is ~100.
 NBA_STATS = {
-    "Oklahoma City Thunder": {"off": 120.2, "def": 107.9},
-    "Boston Celtics": {"off": 115.9, "def": 108.6},
-    "Detroit Pistons": {"off": 117.5, "def": 109.9},
-    "New York Knicks": {"off": 118.2, "def": 112.1},
-    "San Antonio Spurs": {"off": 116.9, "def": 111.8},
-    "Minnesota Timberwolves": {"off": 119.6, "def": 114.8},
-    "Philadelphia 76ers": {"off": 116.8, "def": 115.3},
-    "Los Angeles Lakers": {"off": 116.3, "def": 116.2},
+    "Oklahoma City Thunder": {"off": 120.2, "def": 107.9, "pace": 102.5},
+    "Boston Celtics": {"off": 115.9, "def": 108.6, "pace": 98.2},
+    "Detroit Pistons": {"off": 117.5, "def": 109.9, "pace": 100.1},
+    "New York Knicks": {"off": 118.2, "def": 112.1, "pace": 95.8}, # Slow team = Under lean
+    "San Antonio Spurs": {"off": 116.9, "def": 111.8, "pace": 101.9},
+    "Minnesota Timberwolves": {"off": 119.6, "def": 114.8, "pace": 97.5},
+    "Philadelphia 76ers": {"off": 116.8, "def": 115.3, "pace": 99.0},
+    "Los Angeles Lakers": {"off": 116.3, "def": 116.2, "pace": 101.1},
 }
 
 # --- 3. CALLBACKS ---
@@ -46,42 +47,37 @@ def wipe_memory_callback():
     st.session_state.locked_picks = {}
 
 if 'game_data' not in st.session_state: st.session_state.game_data = []
-if 'locked_picks' not in st.session_state: st.session_state.locked_picks = {}
 
-# --- 4. THE POWERED-UP LOGIC ---
-def calculate_sharp_pick(game_id, away, home, line, away_fatigue, home_fatigue):
-    # We check if context changed, so we don't lock if user is toggling fatigue
-    a_stats = NBA_STATS.get(away, {"off": 115, "def": 115})
-    h_stats = NBA_STATS.get(home, {"off": 115, "def": 115})
+# --- 4. THE DEEP OVER/UNDER FORMULA ---
+def calculate_sharp_pick(away, home, line, away_fatigue, home_fatigue):
+    a = NBA_STATS.get(away, {"off": 115, "def": 115, "pace": 100})
+    h = NBA_STATS.get(home, {"off": 115, "def": 115, "pace": 100})
     
-    # Base Projection
-    a_off = a_stats["off"] - (3.5 if away_fatigue else 0)
-    h_off = h_stats["off"] - (3.5 if home_fatigue else 0)
+    # 1. Calculate Expected Efficiency (Points per 100 possessions)
+    a_eff = (a["off"] + h["def"]) / 2
+    h_eff = (h["off"] + a["def"]) / 2
     
-    # Apply Home Court Advantage (+2.5 to Home, -1.0 to Away)
-    projection = ((a_off + h_stats["def"]) / 2) + ((h_off + 2.5 + a_stats["def"]) / 2)
+    # 2. Fatigue Penalty (Tired teams are less efficient)
+    if away_fatigue: a_eff -= 3.0
+    if home_fatigue: h_eff -= 3.0
+    
+    # 3. Pace Adjustment (Average of both teams' speed)
+    matchup_pace = (a["pace"] + h["pace"]) / 2
+    
+    # 4. Final Projection: (Total Efficiency / 100) * Matchup Pace
+    projection = ((a_eff + h_eff + 2.5) / 100) * matchup_pace # +2.5 for HCA
     
     edge = abs(projection - line)
-    
-    # Calibrated Confidence
-    if edge < 1.0: conf = edge * 25 
-    else: conf = 55 + (min(edge, 10) * 4.2)
-        
-    if (projection - line) > 2.5: res = ("✅ SHARP OVER", conf, projection)
-    elif (projection - line) < -2.5: res = ("🚨 SHARP UNDER", conf, projection)
-    else: res = ("⚖️ PASS", 0, projection)
-        
-    return res
+    conf = 55 + (min(edge, 10) * 4.2) if edge > 1.0 else edge * 25
+
+    if (projection - line) > 2.8: return ("✅ SHARP OVER", conf, projection)
+    elif (projection - line) < -2.8: return ("🚨 SHARP UNDER", conf, projection)
+    else: return ("⚖️ PASS", 0, projection)
 
 # --- 5. THE UI ---
 st.markdown('<div class="header-container"><div class="graffiti-title-english">NBA SHARP AI</div><div class="graffiti-title-arabic">الرهان الذكي</div></div>', unsafe_allow_html=True)
 
-# SIDEBAR STRENGTH SETTINGS
 st.sidebar.markdown("<h1 style='color:#ff4b4b; font-family:\"Aref Ruqaa\"; text-align:center;'>الإعدادات</h1>", unsafe_allow_html=True)
-st.sidebar.markdown("---")
-st.sidebar.subheader("Fatigue Toggles (تعب الفريق)")
-st.sidebar.info("Check if team played last night")
-
 st.button("RUN ANALYSIS - ابدأ التحليل", on_click=run_analysis_callback)
 
 if st.session_state.game_data:
@@ -90,12 +86,11 @@ if st.session_state.game_data:
         try: line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
         except: continue
         
-        # Adding manual toggles per game for fatigue
         with st.sidebar.expander(f"Context: {a} @ {h}"):
-            a_tired = st.checkbox(f"{a} is Tired", key=f"t_{a}_{game_id}")
-            h_tired = st.checkbox(f"{h} is Tired", key=f"t_{h}_{game_id}")
+            af = st.checkbox(f"{a} Tired", key=f"af_{game_id}")
+            hf = st.checkbox(f"{h} Tired", key=f"hf_{game_id}")
         
-        label, conf, proj = calculate_sharp_pick(game_id, a, h, line, a_tired, h_tired)
+        label, conf, proj = calculate_sharp_pick(a, h, line, af, hf)
         
         with st.container():
             col1, col2, col3 = st.columns([3, 2, 2])
@@ -110,5 +105,4 @@ if st.session_state.game_data:
                 else: st.info(label)
                 st.caption(f"Sharp Level: {conf:.1f}%")
 
-st.sidebar.markdown("---")
 st.sidebar.button("WIPE MEMORY", on_click=wipe_memory_callback)
