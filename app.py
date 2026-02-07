@@ -1,53 +1,67 @@
 import streamlit as st
 import requests
 from datetime import datetime
+import base64
 
-# --- 1. CONFIG & STYLE (The "Pro" Look) ---
+# --- 1. CONFIG & PRO VISUALS ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
-# Inject Custom CSS for a professional dark-mode sportsbook vibe
+# This creates the full-screen dark cinematic background
 st.markdown("""
     <style>
-    /* Main Background */
-    .stApp {
-        background-color: #05070a;
-        color: #e0e0e0;
+    /* Full Page Background */
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.95)), 
+                    url("https://images.unsplash.com/photo-1504450758481-7338eba7524a?q=80&w=2069&auto=format&fit=crop");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
     }
-    /* Custom Card Styling */
-    .sharp-card {
-        background: rgba(255, 255, 255, 0.03);
+    
+    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
+
+    /* The 'Glass' Card Effect */
+    .game-card {
+        background: rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 15px;
-        padding: 24px;
-        margin-bottom: 20px;
-        transition: transform 0.2s;
+        border-radius: 20px;
+        padding: 30px;
+        margin-bottom: 25px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
     }
-    .sharp-card:hover {
-        transform: translateY(-5px);
-        background: rgba(255, 255, 255, 0.05);
-        border-color: rgba(255, 255, 255, 0.2);
-    }
-    /* Metric Styling */
-    .metric-label { font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-    .metric-value { font-size: 1.5rem; font-weight: bold; color: #ffffff; }
-    /* Button Styling */
+    
+    /* Neon Text Accents */
+    .team-name { font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
+    .vs-text { color: #555; font-size: 18px; margin: 0 10px; }
+    .metric-box { text-align: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 12px; min-width: 100px; }
+    .metric-label { font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 1px; }
+    .metric-value { font-size: 20px; font-weight: 700; color: #fff; }
+    
+    /* Custom Refresh Button */
     .stButton>button {
-        width: 100%;
-        border-radius: 10px;
-        height: 3em;
-        background-color: #1e88e5;
+        background: linear-gradient(45deg, #1e88e5, #1565c0);
         color: white;
-        font-weight: bold;
         border: none;
+        padding: 15px 40px;
+        border-radius: 50px;
+        font-weight: bold;
+        transition: 0.3s;
+        box-shadow: 0 4px 15px rgba(30, 136, 229, 0.4);
+    }
+    .stButton>button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(30, 136, 229, 0.6);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state (Your original logic)
 if 'results' not in st.session_state: st.session_state.results = None
 if 'injuries' not in st.session_state: st.session_state.injuries = {}
 
-# --- 2. DATA (Keep your existing NBA_STATS) ---
+# --- 2. DATA (Your mid-season stats unchanged) ---
 NBA_STATS = {
     "Atlanta Hawks": {"ppp": 1.12, "opp_ppp": 1.13, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
     "Boston Celtics": {"ppp": 1.21, "opp_ppp": 1.10, "pace": 95.3, "stars": ["Jayson Tatum", "Jaylen Brown"]},
@@ -81,7 +95,7 @@ NBA_STATS = {
     "Washington Wizards": {"ppp": 1.12, "opp_ppp": 1.18, "pace": 106.8, "stars": ["Kyle Kuzma", "Alex Sarr"]}
 }
 
-# --- 3. THE ANALYTIC ENGINE ---
+# --- 3. ANALYTIC ENGINE (Unchanged) ---
 def run_sharp_analysis(away, home, line):
     a = NBA_STATS.get(away, {"ppp": 1.1, "opp_ppp": 1.1, "pace": 100.0, "stars": []})
     h = NBA_STATS.get(home, {"ppp": 1.1, "opp_ppp": 1.1, "pace": 100.0, "stars": []})
@@ -114,9 +128,9 @@ def run_sharp_analysis(away, home, line):
     
     return ("🚫 STAY AWAY", final_proj, "Line is too Efficient", "#3498db")
 
-# --- 4. CALLBACKS ---
+# --- 4. CALLBACKS (Unchanged) ---
 def sync_live_data():
-    with st.spinner("Synchronizing with Vegas..."):
+    with st.spinner("Accessing Vegas Odds & Hospital Feeds..."):
         today = datetime.now().strftime('%Y-%m-%d')
         inj_url = f"https://nba-injury-reports.p.rapidapi.com/injuries/{today}"
         headers = {"X-RapidAPI-Key": "55ee678671msh2dd4de4a390207bp10cd2bjsnf77bbbf65916", "X-RapidAPI-Host": "nba-injury-reports.p.rapidapi.com"}
@@ -134,13 +148,13 @@ def sync_live_data():
 
 # --- 5. UI DISPLAY ---
 st.title("🏀 NBA SHARP AI")
-st.caption("v4.5 | Professional Betting Intelligence")
+st.markdown("<p style='color:#888; margin-top:-20px;'>REAL-TIME QUANTITATIVE ANALYSIS • 2026 SEASON</p>", unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([1,1,1])
-with col2:
-    st.button("REFRESH LIVE DATA", on_click=sync_live_data)
+col_left, col_mid, col_right = st.columns([1,1,1])
+with col_mid:
+    st.button("REFRESH ANALYTICS", on_click=sync_live_data)
 
-st.divider()
+st.write("") # Spacer
 
 if st.session_state.results:
     for game in st.session_state.results:
@@ -150,21 +164,29 @@ if st.session_state.results:
         
         call, proj, status, color = run_sharp_analysis(a, h, line)
         
-        # Professional Layout Card
+        # PRO CINEMATIC CARD
         st.markdown(f"""
-            <div class="sharp-card" style="border-left: 8px solid {color};">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div>
-                        <p style="color: #888; font-weight: bold; margin-bottom: 5px;">GAME MATCHUP</p>
-                        <h2 style="margin: 0; color: #fff;">{a} <span style="color: #444;">@</span> {h}</h2>
-                        <div style="display: flex; gap: 40px; margin-top: 15px;">
-                            <div><p class="metric-label">Vegas Line</p><p class="metric-value">{line}</p></div>
-                            <div><p class="metric-label">AI Projection</p><p class="metric-value">{proj:.1f}</p></div>
+            <div class="game-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex: 2;">
+                        <span class="team-name">{a}</span>
+                        <span class="vs-text">at</span>
+                        <span class="team-name">{h}</span>
+                        <div style="display: flex; gap: 20px; margin-top: 20px;">
+                            <div class="metric-box">
+                                <p class="metric-label">Vegas Total</p>
+                                <p class="metric-value" style="color:#aaa;">{line}</p>
+                            </div>
+                            <div class="metric-box" style="border: 1px solid {color}44;">
+                                <p class="metric-label" style="color:{color};">AI Project</p>
+                                <p class="metric-value">{proj:.1f}</p>
+                            </div>
                         </div>
                     </div>
-                    <div style="text-align: right;">
-                        <p style="color: {color}; font-size: 1.8rem; font-weight: 900; margin: 0;">{call}</p>
-                        <p style="color: #eee; background: {color}33; padding: 4px 12px; border-radius: 5px; display: inline-block; margin-top: 10px;">{status}</p>
+                    <div style="flex: 1; text-align: right;">
+                        <h1 style="margin: 0; color: {color}; font-size: 42px; font-weight: 900; line-height: 1;">{call.split(' ')[1]}</h1>
+                        <p style="margin: 10px 0 0 0; color: #fff; font-weight: 600; letter-spacing: 1px; opacity: 0.9;">{status}</p>
+                        <div style="height: 4px; width: 100px; background: {color}; margin-left: auto; margin-top: 15px; border-radius: 10px;"></div>
                     </div>
                 </div>
             </div>
