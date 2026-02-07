@@ -1,143 +1,137 @@
 import streamlit as st
 import requests
+from datetime import datetime
 
-# --- 1. DESIGN & INTERACTION FIX ---
+# --- 1. DESIGN & STYLE ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@700&family=Permanent+Marker&display=swap');
-    
-    /* FIX: Ensure the background doesn't block clicks */
-    .stApp { 
-        background: #05070a !important; 
-        color: #ffffff; 
-    }
-    
-    /* FIX: Force buttons to the front */
-    .stButton, .stCheckbox, [data-testid="stExpander"] {
-        position: relative;
-        z-index: 999 !important;
-    }
-
+    .stApp { background: #05070a !important; color: #ffffff; }
     .header-container { display: flex; justify-content: center; align-items: center; gap: 25px; padding-bottom: 20px; border-bottom: 1px solid #1c2128; margin-bottom: 30px; }
     .graffiti-title-english { font-family: 'Permanent Marker', cursive; font-size: 38px; color: #ffffff; text-shadow: 3px 3px 0px #ff4b4b, -1px -1px 0px #58a6ff; }
     .graffiti-title-arabic { font-family: 'Aref Ruqaa', serif; font-size: 38px; color: #ffffff; text-shadow: 3px 3px 0px #58a6ff, -1px -1px 0px #ff4b4b; direction: rtl; }
-    
-    [data-testid="stVerticalBlock"] > div:has(div.stMetric) { 
-        background-color: #11151c !important; 
-        border-radius: 12px; 
-        border-left: 6px solid #ff4b4b; 
-        border-right: 6px solid #58a6ff; 
-        padding: 20px; 
-        box-shadow: 0px 8px 20px rgba(0,0,0,0.5); 
-        margin-bottom: 15px; 
-    }
-
     .stButton>button { 
         background: linear-gradient(90deg, #ff4b4b 0%, #58a6ff 100%) !important; 
-        color: white !important; 
-        font-family: 'Permanent Marker', cursive !important; 
-        font-size: 20px !important; 
-        border: 2px solid #ffffff !important; 
-        border-radius: 8px !important; 
-        height: 3.5rem !important; 
-        width: 100%;
-        cursor: pointer !important; /* Ensure cursor shows up */
+        color: white !important; font-family: 'Permanent Marker', cursive !important; 
+        font-size: 20px !important; border: 2px solid #ffffff !important; border-radius: 8px !important; 
+        height: 3.5rem !important; width: 100%; cursor: pointer !important; 
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE STATS (PERMA-SAVED) ---
+# --- 2. THE FULL 30-TEAM DATABASE (2026 UPDATED) ---
 NBA_STATS = {
-    "Boston Celtics": {"off": 121.1, "def": 114.4, "pace": 95.6, "stars": ["Jayson Tatum", "Jaylen Brown"]},
-    "Oklahoma City Thunder": {"off": 119.3, "def": 107.8, "pace": 101.0, "stars": ["Shai Gilgeous-Alexander", "Chet Holmgren"]},
-    "New York Knicks": {"off": 120.3, "def": 114.8, "pace": 98.9, "stars": ["Jalen Brunson", "Karl-Anthony Towns"]},
-    "Detroit Pistons": {"off": 116.2, "def": 109.8, "pace": 100.8, "stars": ["Cade Cunningham", "Jalen Duren"]},
-    "Los Angeles Lakers": {"off": 117.7, "def": 118.3, "pace": 99.5, "stars": ["Luka Doncic", "Anthony Davis"]},
-    "Denver Nuggets": {"off": 121.9, "def": 118.9, "pace": 98.3, "stars": ["Nikola Jokic", "Jamal Murray"]},
-    "Milwaukee Bucks": {"off": 113.5, "def": 117.7, "pace": 98.0, "stars": ["Giannis Antetokounmpo", "Damian Lillard"]},
-    "Phoenix Suns": {"off": 116.0, "def": 113.3, "pace": 99.3, "stars": ["Kevin Durant", "Devin Booker"]},
-    "Indiana Pacers": {"off": 110.1, "def": 116.9, "pace": 100.8, "stars": ["Tyrese Haliburton"]},
-    "Miami Heat": {"off": 115.0, "def": 112.7, "pace": 105.2, "stars": ["Jimmy Butler", "Bam Adebayo"]},
-    "Dallas Mavericks": {"off": 110.3, "def": 113.2, "pace": 94.5, "stars": ["Kyrie Irving"]},
-    "Minnesota Timberwolves": {"off": 117.6, "def": 113.6, "pace": 101.5, "stars": ["Anthony Edwards", "Ayo Dosunmu"]},
-    "Washington Wizards": {"off": 110.6, "def": 121.2, "pace": 100.8, "stars": ["Trae Young"]},
-    "Golden State Warriors": {"off": 115.9, "def": 113.4, "pace": 101.0, "stars": ["Stephen Curry"]},
+    "Atlanta Hawks": {"off": 114.6, "def": 115.0, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
+    "Boston Celtics": {"off": 121.0, "def": 114.4, "pace": 99.2, "stars": ["Jayson Tatum", "Jaylen Brown", "Kristaps Porzingis"]},
+    "Brooklyn Nets": {"off": 110.3, "def": 118.4, "pace": 100.1, "stars": ["Cam Thomas", "Nicolas Claxton"]},
+    "Charlotte Hornets": {"off": 117.4, "def": 116.0, "pace": 102.2, "stars": ["LaMelo Ball", "Brandon Miller"]},
+    "Chicago Bulls": {"off": 114.6, "def": 118.3, "pace": 105.1, "stars": ["Josh Giddey", "Coby White"]},
+    "Cleveland Cavaliers": {"off": 117.9, "def": 114.2, "pace": 104.9, "stars": ["Donovan Mitchell", "Evan Mobley", "Darius Garland"]},
+    "Dallas Mavericks": {"off": 110.5, "def": 113.5, "pace": 105.9, "stars": ["Luka Doncic", "Kyrie Irving"]},
+    "Denver Nuggets": {"off": 121.9, "def": 118.9, "pace": 101.8, "stars": ["Nikola Jokic", "Jamal Murray"]},
+    "Detroit Pistons": {"off": 116.1, "def": 110.1, "pace": 104.4, "stars": ["Cade Cunningham", "Jaden Ivey"]},
+    "Golden State Warriors": {"off": 115.9, "def": 113.3, "pace": 103.9, "stars": ["Stephen Curry", "Jonathan Kuminga"]},
+    "Houston Rockets": {"off": 118.4, "def": 113.5, "pace": 101.1, "stars": ["Alperen Sengun", "Jalen Green"]},
+    "Indiana Pacers": {"off": 110.1, "def": 116.9, "pace": 104.6, "stars": ["Tyrese Haliburton", "Pascal Siakam"]},
+    "Los Angeles Clippers": {"off": 116.7, "def": 117.2, "pace": 99.9, "stars": ["James Harden", "Kawhi Leonard"]},
+    "Los Angeles Lakers": {"off": 117.7, "def": 118.2, "pace": 101.8, "stars": ["LeBron James", "Anthony Davis"]},
+    "Memphis Grizzlies": {"off": 113.5, "def": 115.2, "pace": 105.1, "stars": ["Ja Morant", "Desmond Bane", "Jaren Jackson Jr."]},
+    "Miami Heat": {"off": 114.9, "def": 112.7, "pace": 108.0, "stars": ["Jimmy Butler", "Bam Adebayo"]},
+    "Milwaukee Bucks": {"off": 113.5, "def": 117.7, "pace": 101.7, "stars": ["Giannis Antetokounmpo", "Damian Lillard"]},
+    "Minnesota Timberwolves": {"off": 117.6, "def": 113.6, "pace": 104.9, "stars": ["Anthony Edwards", "Rudy Gobert"]},
+    "New Orleans Pelicans": {"off": 114.0, "def": 119.8, "pace": 104.6, "stars": ["Zion Williamson", "Brandon Ingram"]},
+    "New York Knicks": {"off": 120.3, "def": 114.8, "pace": 101.6, "stars": ["Jalen Brunson", "Karl-Anthony Towns"]},
+    "Oklahoma City Thunder": {"off": 119.3, "def": 107.8, "pace": 103.9, "stars": ["Shai Gilgeous-Alexander", "Chet Holmgren"]},
+    "Orlando Magic": {"off": 114.8, "def": 114.9, "pace": 103.9, "stars": ["Paolo Banchero", "Franz Wagner"]},
+    "Philadelphia 76ers": {"off": 116.6, "def": 115.3, "pace": 104.0, "stars": ["Joel Embiid", "Tyrese Maxey"]},
+    "Phoenix Suns": {"off": 115.9, "def": 113.3, "pace": 102.0, "stars": ["Kevin Durant", "Devin Booker"]},
+    "Portland Trail Blazers": {"off": 114.5, "def": 116.1, "pace": 105.3, "stars": ["Anfernee Simons", "Shaedon Sharpe"]},
+    "Sacramento Kings": {"off": 110.5, "def": 120.5, "pace": 103.4, "stars": ["De'Aaron Fox", "Domantas Sabonis"]},
+    "San Antonio Spurs": {"off": 117.2, "def": 111.8, "pace": 103.2, "stars": ["Victor Wembanyama", "Devin Vassell"]},
+    "Toronto Raptors": {"off": 114.6, "def": 113.4, "pace": 102.8, "stars": ["Scottie Barnes", "RJ Barrett"]},
+    "Utah Jazz": {"off": 116.0, "def": 123.4, "pace": 106.5, "stars": ["Lauri Markkanen", "Keyonte George"]},
+    "Washington Wizards": {"off": 110.1, "def": 116.9, "pace": 104.8, "stars": ["Trae Young", "Anthony Davis"]}
 }
 
-# --- 3. CALLBACKS & DATA ---
-def run_analysis_callback():
-    # Fetching real lines
-    url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
-    params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
-    
-    # Perma-Check Injuries (Simulated)
-    st.session_state.injured_stars = ["Jayson Tatum", "Tyrese Haliburton", "Luka Doncic"]
-    
+# --- 3. LIVE API SYNC ---
+RAPID_API_KEY = "55ee678671msh2dd4de4a390207bp10cd2bjsnf77bbbf65916"
+
+def get_live_injury_data():
+    today = datetime.now().strftime('%Y-%m-%d')
+    url = f"https://nba-injury-reports.p.rapidapi.com/injuries/{today}"
+    headers = {"X-RapidAPI-Key": RAPID_API_KEY, "X-RapidAPI-Host": "nba-injury-reports.p.rapidapi.com"}
     try:
-        res = requests.get(url, params=params)
-        if res.status_code == 200:
-            st.session_state.game_data = res.json()
-    except: st.error("API Link Error")
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return {item['player']: item['status'] for item in response.json()}
+    except: return {}
+    return {}
 
-if 'game_data' not in st.session_state: st.session_state.game_data = []
-
-def get_betting_instruction(away, home, vegas_line, af, hf):
+# --- 4. ENGINE LOGIC ---
+def analyze_game(away, home, vegas_line):
     a = NBA_STATS.get(away, {"off": 114, "def": 115, "pace": 100, "stars": []})
     h = NBA_STATS.get(home, {"off": 114, "def": 115, "pace": 100, "stars": []})
     
     a_eff, h_eff = a["off"], h["off"]
-    if af: a_eff -= 3.5
-    if hf: h_eff -= 3.5
-    
-    # Auto-slash for injuries
-    for star in a["stars"]:
-        if star in st.session_state.get('injured_stars', []): a_eff -= 8.5
-    for star in h["stars"]:
-        if star in st.session_state.get('injured_stars', []): h_eff -= 8.5
+    live_report = st.session_state.get('live_report', {})
+    shaky = []
 
-    matchup_pace = (a["pace"] + h["pace"]) / 2
-    proj = ((a_eff + h["def"] + h_eff + 2.5 + a["def"]) / 200) * matchup_pace
+    for team_data, eff, side in [(a, a_eff, "Away"), (h, h_eff, "Home")]:
+        for star in team_data["stars"]:
+            status = live_report.get(star, "Available")
+            if status in ["Out", "Doubtful"]:
+                if side == "Away": a_eff -= 8.5
+                else: h_eff -= 8.5
+                shaky.append(f"{star} ({status})")
+            elif status == "Questionable":
+                if side == "Away": a_eff -= 4.5
+                else: h_eff -= 4.5
+                shaky.append(f"{star} ({status})")
+
+    if len(shaky) >= 2:
+        return ("🚫 STAY AWAY", 0, 0, f"⚠️ ROSTER COLLAPSE: {', '.join(shaky)}")
+
+    pace = (a["pace"] + h["pace"]) / 2
+    proj = ((a_eff + h["def"] + h_eff + 2.5 + a["def"]) / 200) * pace
     diff = proj - vegas_line
-    value_score = 60 + (min(abs(diff), 12) * 2.8)
+    value = 60 + (min(abs(diff), 12) * 2.8)
     
-    if diff > 3.2: return ("🔥 TAKE THE OVER", proj, value_score)
-    elif diff < -3.2: return ("❄️ TAKE THE UNDER", proj, value_score)
-    return ("🚫 STAY AWAY", proj, 0)
+    if diff > 3.5: return ("🔥 TAKE THE OVER", proj, value, None)
+    elif diff < -3.5: return ("❄️ TAKE THE UNDER", proj, value, None)
+    return ("🚫 STAY AWAY", proj, 0, None)
 
-# --- 4. MAIN UI ---
+# --- 5. MAIN UI ---
 st.markdown('<div class="header-container"><div class="graffiti-title-english">NBA SHARP AI</div><div class="graffiti-title-arabic">الرهان الذكي</div></div>', unsafe_allow_html=True)
 
-# Main Action Button
-st.button("RUN ANALYSIS - ابدأ التحليل", on_click=run_analysis_callback)
+if st.button("RUN ANALYSIS - ابدأ التحليل"):
+    st.session_state.live_report = get_live_injury_data()
+    odds_url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
+    params = {"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"}
+    try:
+        res = requests.get(odds_url, params=params)
+        if res.status_code == 200: st.session_state.game_data = res.json()
+    except: st.error("Odds API Down")
 
-if st.session_state.game_data:
-    for game in st.session_state.game_data:
+if 'game_data' in st.session_state:
+    for game in st.session_state['game_data']:
         h, a = game['home_team'], game['away_team']
         try: line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
         except: continue
         
-        with st.sidebar.expander(f"Situational: {a} @ {h}"):
-            af = st.checkbox(f"{a} Tired?", key=f"af_{game['id']}")
-            hf = st.checkbox(f"{h} Tired?", key=f"hf_{game['id']}")
-            for s in NBA_STATS.get(a, {}).get('stars', []) + NBA_STATS.get(h, {}).get('stars', []):
-                if s in st.session_state.get('injured_stars', []):
-                    st.warning(f"AUTO-DETECT: {s} is OUT")
-        
-        call, proj, value = get_betting_instruction(a, h, line, af, hf)
+        call, proj, value, alert = analyze_game(a, h, line)
         
         with st.container():
-            col1, col2, col3 = st.columns([3, 2, 2])
-            with col1:
-                st.markdown(f"## {a} vs {h}")
-                st.caption(f"Vegas Set: {line}")
-            with col2:
-                st.metric("AI Projection", f"{proj:.1f}")
-            with col3:
+            c1, c2, c3 = st.columns([3, 2, 2])
+            with c1:
+                st.markdown(f"### {a} @ {h}")
+                st.caption(f"Vegas: {line}")
+                if alert: st.warning(alert)
+            with c2:
+                st.metric("AI Projection", f"{proj:.1f}" if proj > 0 else "N/A")
+            with c3:
                 if "OVER" in call: st.success(call)
                 elif "UNDER" in call: st.error(call)
                 else: st.info(call)
-                if value > 0: st.markdown(f"**Value Rating: {value:.1f}%**")
-
-st.sidebar.button("WIPE MEMORY", on_click=lambda: st.session_state.update({"game_data": []}))
+                if value > 0: st.write(f"Confidence: {value:.1f}%")
