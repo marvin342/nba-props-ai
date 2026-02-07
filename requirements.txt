@@ -5,5 +5,4 @@ requests
 numpy
 scipy
 streamlit-autorefresh
-freeglut3-dev
 nba_api
