@@ -6,3 +6,4 @@ requests
 numpy
 scipy
 streamlit-autorefresh
+nba_api
