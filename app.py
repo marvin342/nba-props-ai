@@ -1,15 +1,15 @@
 import streamlit as st
 import requests
 from datetime import datetime
-import base64
+import pandas as pd
+# Added for live automation
+from nba_api.stats.endpoints import leaguedashteamstats
 
-# --- 1. CONFIG & PRO VISUALS ---
+# --- 1. CONFIG & PRO VISUALS (UNTOUCHED) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
-# This creates the full-screen dark cinematic background
 st.markdown("""
     <style>
-    /* Full Page Background */
     [data-testid="stAppViewContainer"] {
         background: linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.95)), 
                     url("https://images.unsplash.com/photo-1504450758481-7338eba7524a?q=80&w=2069&auto=format&fit=crop");
@@ -17,10 +17,7 @@ st.markdown("""
         background-position: center;
         background-attachment: fixed;
     }
-    
     [data-testid="stHeader"] { background: rgba(0,0,0,0); }
-
-    /* The 'Glass' Card Effect */
     .game-card {
         background: rgba(255, 255, 255, 0.04);
         backdrop-filter: blur(12px);
@@ -31,15 +28,11 @@ st.markdown("""
         margin-bottom: 25px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
     }
-    
-    /* Neon Text Accents */
     .team-name { font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
     .vs-text { color: #555; font-size: 18px; margin: 0 10px; }
     .metric-box { text-align: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 12px; min-width: 100px; }
     .metric-label { font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 1px; }
     .metric-value { font-size: 20px; font-weight: 700; color: #fff; }
-    
-    /* Custom Refresh Button */
     .stButton>button {
         background: linear-gradient(45deg, #1e88e5, #1565c0);
         color: white;
@@ -57,11 +50,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Initialize session state (Your original logic)
+# Initialize session state
 if 'results' not in st.session_state: st.session_state.results = None
 if 'injuries' not in st.session_state: st.session_state.injuries = {}
+if 'live_stats' not in st.session_state: st.session_state.live_stats = {}
 
-# --- 2. DATA (Your mid-season stats unchanged) ---
+# --- 2. DATA (Fallback & Star Definitions) ---
 NBA_STATS = {
     "Atlanta Hawks": {"ppp": 1.12, "opp_ppp": 1.13, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
     "Boston Celtics": {"ppp": 1.21, "opp_ppp": 1.10, "pace": 95.3, "stars": ["Jayson Tatum", "Jaylen Brown"]},
@@ -95,24 +89,48 @@ NBA_STATS = {
     "Washington Wizards": {"ppp": 1.12, "opp_ppp": 1.18, "pace": 106.8, "stars": ["Kyle Kuzma", "Alex Sarr"]}
 }
 
-# --- 3. ANALYTIC ENGINE (Unchanged) ---
+# --- 3. LIVE DATA FETCH (NEW AUTOMATION) ---
+def fetch_live_metrics():
+    try:
+        data = leaguedashteamstats.LeagueDashTeamStats(per_mode_detailed='PerGame').get_data_frames()[0]
+        live_map = {}
+        for _, row in data.iterrows():
+            # Possessions estimate: FGA + 0.44*FTA + TOV
+            poss = row['FGA'] + (0.44 * row['FTA']) + row['TOV']
+            live_map[row['TEAM_NAME']] = {
+                "ppp": row['PTS'] / poss,
+                "opp_ppp": row['OPP_PTS'] / poss,
+                "pace": row['PACE']
+            }
+        return live_map
+    except:
+        return {}
+
+# --- 4. ANALYTIC ENGINE (Logic Preserved) ---
 def run_sharp_analysis(away, home, line):
-    a = NBA_STATS.get(away, {"ppp": 1.1, "opp_ppp": 1.1, "pace": 100.0, "stars": []})
-    h = NBA_STATS.get(home, {"ppp": 1.1, "opp_ppp": 1.1, "pace": 100.0, "stars": []})
-    a_ppp, h_ppp = a["ppp"], h["ppp"]
+    # Use Live data if available, else use manual Fallback
+    a_base = st.session_state.live_stats.get(away, NBA_STATS.get(away))
+    h_base = st.session_state.live_stats.get(home, NBA_STATS.get(home))
     
-    for star in a["stars"]:
+    # Ensure stars are pulled from the manual list regardless of stats source
+    a_stars = NBA_STATS.get(away, {}).get("stars", [])
+    h_stars = NBA_STATS.get(home, {}).get("stars", [])
+    
+    a_ppp, h_ppp = a_base["ppp"], h_base["ppp"]
+    
+    # Injury Adjustment Logic (Preserved)
+    for star in a_stars:
         status = st.session_state.injuries.get(star, "Available")
         if status in ["Out", "Doubtful"]: a_ppp -= 0.08
         elif status == "Questionable": a_ppp -= 0.04
-    for star in h["stars"]:
+    for star in h_stars:
         status = st.session_state.injuries.get(star, "Available")
         if status in ["Out", "Doubtful"]: h_ppp -= 0.08
         elif status == "Questionable": h_ppp -= 0.04
 
-    avg_pace = (a["pace"] + h["pace"]) / 2
-    proj_a = ((a_ppp + h["opp_ppp"]) / 2) * avg_pace
-    proj_h = (((h_ppp + 0.015) + a["opp_ppp"]) / 2) * avg_pace 
+    avg_pace = (a_base["pace"] + h_base["pace"]) / 2
+    proj_a = ((a_ppp + h_base["opp_ppp"]) / 2) * avg_pace
+    proj_h = (((h_ppp + 0.015) + a_base["opp_ppp"]) / 2) * avg_pace 
     
     final_proj = proj_a + proj_h
     diff = final_proj - line
@@ -128,9 +146,13 @@ def run_sharp_analysis(away, home, line):
     
     return ("🚫 STAY AWAY", final_proj, "Line is too Efficient", "#3498db")
 
-# --- 4. CALLBACKS (Unchanged) ---
+# --- 5. CALLBACKS ---
 def sync_live_data():
-    with st.spinner("Accessing Vegas Odds & Hospital Feeds..."):
+    with st.spinner("Syncing Live NBA.com Data & Vegas Odds..."):
+        # Fetch Live Stats
+        st.session_state.live_stats = fetch_live_metrics()
+        
+        # Fetch Injuries (Existing)
         today = datetime.now().strftime('%Y-%m-%d')
         inj_url = f"https://nba-injury-reports.p.rapidapi.com/injuries/{today}"
         headers = {"X-RapidAPI-Key": "55ee678671msh2dd4de4a390207bp10cd2bjsnf77bbbf65916", "X-RapidAPI-Host": "nba-injury-reports.p.rapidapi.com"}
@@ -139,6 +161,8 @@ def sync_live_data():
             if i_res.status_code == 200:
                 st.session_state.injuries = {item['player']: item['status'] for item in i_res.json()}
         except: pass
+        
+        # Fetch Odds (Existing)
         try:
             o_res = requests.get("https://api.the-odds-api.com/v4/sports/basketball_nba/odds", 
                                params={"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"})
@@ -146,7 +170,7 @@ def sync_live_data():
                 st.session_state.results = o_res.json()
         except: st.error("Vegas API Down")
 
-# --- 5. UI DISPLAY ---
+# --- 6. UI DISPLAY (Preserved) ---
 st.title("🏀 NBA SHARP AI")
 st.markdown("<p style='color:#888; margin-top:-20px;'>REAL-TIME QUANTITATIVE ANALYSIS • 2026 SEASON</p>", unsafe_allow_html=True)
 
@@ -154,7 +178,7 @@ col_left, col_mid, col_right = st.columns([1,1,1])
 with col_mid:
     st.button("REFRESH ANALYTICS", on_click=sync_live_data)
 
-st.write("") # Spacer
+st.write("") 
 
 if st.session_state.results:
     for game in st.session_state.results:
@@ -164,7 +188,6 @@ if st.session_state.results:
         
         call, proj, status, color = run_sharp_analysis(a, h, line)
         
-        # PRO CINEMATIC CARD
         st.markdown(f"""
             <div class="game-card">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
