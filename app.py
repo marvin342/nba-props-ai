@@ -1,9 +1,8 @@
 import subprocess
 import sys
-import os
 
-# --- 0. THE UNBREAKABLE BOOTSTRAPPER ---
-# This forces the server to install the library even if requirements.txt fails.
+# --- 0. THE FAIL-SAFE: FORCING NBA_API INSTALLATION ---
+# This block runs before anything else to ensure the cloud server has the library.
 try:
     from nba_api.stats.endpoints import leaguedashteamstats, teamplayerstats
     from nba_api.stats.static import teams
@@ -17,7 +16,7 @@ import requests
 from datetime import datetime
 import pandas as pd
 
-# --- 1. CONFIG & PRO VISUALS ---
+# --- 1. CONFIG & PRO VISUALS (YOUR CUSTOM CSS) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
@@ -29,18 +28,36 @@ st.markdown("""
         background-position: center;
         background-attachment: fixed;
     }
+    [data-testid="stHeader"] { background: rgba(0,0,0,0); }
     .game-card {
         background: rgba(255, 255, 255, 0.04);
         backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 20px;
         padding: 30px;
         margin-bottom: 25px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
     }
-    .team-name { font-size: 26px; font-weight: 800; color: #ffffff; }
-    .metric-box { text-align: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 12px; }
-    .metric-label { font-size: 10px; color: #888; text-transform: uppercase; }
+    .team-name { font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; }
+    .vs-text { color: #555; font-size: 18px; margin: 0 10px; }
+    .metric-box { text-align: center; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 12px; min-width: 100px; }
+    .metric-label { font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 2px; letter-spacing: 1px; }
     .metric-value { font-size: 20px; font-weight: 700; color: #fff; }
+    .stButton>button {
+        background: linear-gradient(45deg, #1e88e5, #1565c0);
+        color: white;
+        border: none;
+        padding: 15px 40px;
+        border-radius: 50px;
+        font-weight: bold;
+        transition: 0.3s;
+        box-shadow: 0 4px 15px rgba(30, 136, 229, 0.4);
+    }
+    .stButton>button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(30, 136, 229, 0.6);
+    }
     .prop-row { 
         background: rgba(255, 255, 255, 0.02); 
         margin-bottom: 8px; 
@@ -51,12 +68,12 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Session States
+# Initialize session state
 if 'results' not in st.session_state: st.session_state.results = None
 if 'injuries' not in st.session_state: st.session_state.injuries = {}
 if 'live_stats' not in st.session_state: st.session_state.live_stats = {}
 
-# --- 2. NBA FALLBACK DATA ---
+# --- 2. DATA (NBA_STATS FALLBACKS) ---
 NBA_STATS = {
     "Atlanta Hawks": {"ppp": 1.12, "opp_ppp": 1.13, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
     "Boston Celtics": {"ppp": 1.21, "opp_ppp": 1.10, "pace": 95.3, "stars": ["Jayson Tatum", "Jaylen Brown"]},
@@ -90,43 +107,33 @@ NBA_STATS = {
     "Washington Wizards": {"ppp": 1.12, "opp_ppp": 1.18, "pace": 106.8, "stars": ["Kyle Kuzma", "Alex Sarr"]}
 }
 
-# --- 3. HELPER FUNCTIONS ---
 def get_team_id(name):
     try:
         team_dict = teams.find_teams_by_full_name(name)
         return team_dict[0]['id'] if team_dict else None
     except: return None
 
-def sync_live_data():
-    with st.spinner("🔄 Syncing Live Stats & Vegas Odds..."):
-        # 1. Fetch Team Metrics
-        try:
-            data = leaguedashteamstats.LeagueDashTeamStats(per_mode_detailed='PerGame').get_data_frames()[0]
-            live_map = {}
-            for _, row in data.iterrows():
-                poss = row['FGA'] + (0.44 * row['FTA']) + row['TOV']
-                live_map[row['TEAM_NAME']] = {
-                    "ppp": row['PTS'] / poss,
-                    "opp_ppp": row['OPP_PTS'] / poss,
-                    "pace": row['PACE']
-                }
-            st.session_state.live_stats = live_map
-        except: st.warning("Using historical stats (NBA API Timeout)")
+# --- 3. LIVE DATA FETCH ---
+def fetch_live_metrics():
+    try:
+        data = leaguedashteamstats.LeagueDashTeamStats(per_mode_detailed='PerGame').get_data_frames()[0]
+        live_map = {}
+        for _, row in data.iterrows():
+            poss = row['FGA'] + (0.44 * row['FTA']) + row['TOV']
+            live_map[row['TEAM_NAME']] = {
+                "ppp": row['PTS'] / poss,
+                "opp_ppp": row['OPP_PTS'] / poss,
+                "pace": row['PACE']
+            }
+        return live_map
+    except: return {}
 
-        # 2. Fetch Vegas Odds
-        try:
-            o_res = requests.get("https://api.the-odds-api.com/v4/sports/basketball_nba/odds", 
-                               params={"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"})
-            if o_res.status_code == 200: st.session_state.results = o_res.json()
-        except: st.error("Vegas API Down")
-
+# --- 4. ANALYTIC ENGINE (GAME TOTALS) ---
 def run_sharp_analysis(away, home, line):
     a_base = st.session_state.live_stats.get(away, NBA_STATS.get(away))
     h_base = st.session_state.live_stats.get(home, NBA_STATS.get(home))
-    
     a_ppp, h_ppp = a_base["ppp"], h_base["ppp"]
     
-    # Apply injury penalties (if any star is OUT)
     for star in NBA_STATS.get(away, {}).get("stars", []):
         if st.session_state.injuries.get(star) in ["Out", "Doubtful"]: a_ppp -= 0.08
     for star in NBA_STATS.get(home, {}).get("stars", []):
@@ -141,6 +148,17 @@ def run_sharp_analysis(away, home, line):
     if diff < -6.0: return ("❄️ UNDER", proj, f"Edge: +{min(15.0, abs(diff)):.1f}%", "#e74c3c")
     return ("⚖️ NEUTRAL", proj, "Efficient", "#3498db")
 
+# --- 5. SYNC LOGIC ---
+def sync_live_data():
+    with st.spinner("Syncing Live Stats..."):
+        st.session_state.live_stats = fetch_live_metrics()
+        try:
+            o_res = requests.get("https://api.the-odds-api.com/v4/sports/basketball_nba/odds", 
+                               params={"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"})
+            if o_res.status_code == 200: st.session_state.results = o_res.json()
+        except: st.error("Vegas API Down")
+
+# --- 6. PLAYER PROPS LOGIC (PRA + USAGE) ---
 def get_player_props(team_name, opp_team):
     tid = get_team_id(team_name)
     if not tid: return []
@@ -160,21 +178,23 @@ def get_player_props(team_name, opp_team):
             p_pts = round(p['PTS'] * (opp_data['opp_ppp']/1.12) * usage_boost, 1)
             p_reb = round(p['REB'] * pace_factor * (1 + (usage_boost-1)*0.5), 1)
             p_ast = round(p['AST'] * usage_boost * 1.1, 1)
+            
             props.append({"name": name, "pts": p_pts, "reb": p_reb, "ast": p_ast, "pra": round(p_pts+p_reb+p_ast, 1)})
         return props
     except: return []
 
-# --- 4. MAIN UI ---
+# --- 7. MAIN UI ---
 st.title("🏀 NBA SHARP AI")
-st.markdown("<p style='color:#888; margin-top:-20px;'>LIVE FEEDS • PLAYER PROPS • 2026 QUANT</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#888; margin-top:-20px;'>QUANTITATIVE ANALYSIS • TRIPLE-DOUBLE PROPS • 2026 SEASON</p>", unsafe_allow_html=True)
 
-if st.button("REFRESH ALL ANALYTICS"):
-    sync_live_data()
+col_l, col_m, col_r = st.columns([1,1,1])
+with col_m:
+    if st.button("REFRESH ANALYTICS"): sync_live_data()
 
 if st.session_state.results:
-    tab1, tab2 = st.tabs(["🔥 GAME TOTALS", "🏹 PLAYER PROPS"])
+    t1, t2 = st.tabs(["🔥 GAME TOTALS", "🏹 PLAYER PROPS"])
     
-    with tab1:
+    with t1:
         for game in st.session_state.results:
             h, a = game['home_team'], game['away_team']
             try: line = game['bookmakers'][0]['markets'][0]['outcomes'][0]['point']
@@ -185,34 +205,31 @@ if st.session_state.results:
                 <div class="game-card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div style="flex: 2;">
-                            <span class="team-name">{a} @ {h}</span>
+                            <span class="team-name">{a}</span> <span class="vs-text">at</span> <span class="team-name">{h}</span>
                             <div style="display: flex; gap: 20px; margin-top: 20px;">
-                                <div class="metric-box"><p class="metric-label">Vegas</p><p class="metric-value" style="color:#aaa;">{line}</p></div>
-                                <div class="metric-box" style="border: 1px solid {color}44;"><p class="metric-label" style="color:{color};">AI Proj</p><p class="metric-value">{proj:.1f}</p></div>
+                                <div class="metric-box"><p class="metric-label">Vegas Total</p><p class="metric-value" style="color:#aaa;">{line}</p></div>
+                                <div class="metric-box" style="border: 1px solid {color}44;"><p class="metric-label" style="color:{color};">AI Project</p><p class="metric-value">{proj:.1f}</p></div>
                             </div>
                         </div>
                         <div style="flex: 1; text-align: right;">
-                            <h1 style="margin: 0; color: {color}; font-size: 38px;">{call}</h1>
-                            <p style="margin: 5px 0 0 0; color: #fff;">{status}</p>
+                            <h1 style="margin: 0; color: {color}; font-size: 42px; font-weight: 900;">{call.split(' ')[1]}</h1>
+                            <p style="margin: 10px 0 0 0; color: #fff; font-weight: 600;">{status}</p>
                         </div>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
 
-    with tab2:
+    with t2:
         game_list = [f"{g['away_team']} @ {g['home_team']}" for g in st.session_state.results]
-        selected_game = st.selectbox("Select Matchup for Player Props", ["-- Select --"] + game_list)
-        if selected_game != "-- Select --":
+        selected_game = st.selectbox("Active Matchups", game_list)
+        if selected_game:
             a_t, h_t = selected_game.split(" @ ")
             c1, c2 = st.columns(2)
             for team, col, opp in [(a_t, c1, h_t), (h_t, c2, a_t)]:
                 with col:
-                    st.subheader(f"{team} Props")
+                    st.subheader(f"{team} Targets")
                     for p in get_player_props(team, opp):
                         st.markdown(f"""<div class="prop-row">
                             <b>{p['name']}</b><br>
-                            <span style="color:#2ecc71;">Projected PRA: {p['pra']}</span><br>
-                            <small style="color:#888;">PTS: {p['pts']} | REB: {p['reb']} | AST: {p['ast']}</small>
+                            <span style="color:#2ecc71;">PRA: {p['pra']}</span> (P:{p['pts']} R:{p['reb']} A:{p['ast']})
                             </div>""", unsafe_allow_html=True)
-else:
-    st.info("Click 'Refresh All Analytics' to load the live 2026 board.")
