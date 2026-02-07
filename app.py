@@ -5,7 +5,7 @@ import pandas as pd
 from nba_api.stats.endpoints import leaguedashteamstats, teamplayerstats
 from nba_api.stats.static import teams
 
-# --- 1. CONFIG & PRO VISUALS (UNTOUCHED) ---
+# --- 1. CONFIG & PRO VISUALS (RETAINED) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
@@ -47,6 +47,14 @@ st.markdown("""
         transform: scale(1.05);
         box-shadow: 0 6px 20px rgba(30, 136, 229, 0.6);
     }
+    /* Added Prop Specific Styling */
+    .prop-row { 
+        background: rgba(255, 255, 255, 0.02); 
+        margin-bottom: 8px; 
+        padding: 12px; 
+        border-radius: 10px; 
+        border-left: 3px solid #1e88e5;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -55,7 +63,7 @@ if 'results' not in st.session_state: st.session_state.results = None
 if 'injuries' not in st.session_state: st.session_state.injuries = {}
 if 'live_stats' not in st.session_state: st.session_state.live_stats = {}
 
-# --- 2. DATA (Fallback & Star Definitions) ---
+# --- 2. DATA (Fallback & Star Definitions - RETAINED) ---
 NBA_STATS = {
     "Atlanta Hawks": {"ppp": 1.12, "opp_ppp": 1.13, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
     "Boston Celtics": {"ppp": 1.21, "opp_ppp": 1.10, "pace": 95.3, "stars": ["Jayson Tatum", "Jaylen Brown"]},
@@ -89,14 +97,13 @@ NBA_STATS = {
     "Washington Wizards": {"ppp": 1.12, "opp_ppp": 1.18, "pace": 106.8, "stars": ["Kyle Kuzma", "Alex Sarr"]}
 }
 
-# Helper to find Team ID
 def get_team_id(name):
     try:
         team_dict = teams.find_teams_by_full_name(name)
         return team_dict[0]['id'] if team_dict else None
     except: return None
 
-# --- 3. LIVE DATA FETCH (NEW AUTOMATION) ---
+# --- 3. LIVE DATA FETCH (RETAINED) ---
 def fetch_live_metrics():
     try:
         data = leaguedashteamstats.LeagueDashTeamStats(per_mode_detailed='PerGame').get_data_frames()[0]
@@ -111,7 +118,7 @@ def fetch_live_metrics():
         return live_map
     except: return {}
 
-# --- 4. ANALYTIC ENGINE (Logic Preserved) ---
+# --- 4. ANALYTIC ENGINE (RETAINED) ---
 def run_sharp_analysis(away, home, line):
     a_base = st.session_state.live_stats.get(away, NBA_STATS.get(away))
     h_base = st.session_state.live_stats.get(home, NBA_STATS.get(home))
@@ -140,7 +147,7 @@ def run_sharp_analysis(away, home, line):
     if diff < -6.0: return ("❄️ UNDER", final_proj, f"Edge: +{min(15.0, abs(diff)):.1f}%", "#e74c3c")
     return ("🚫 STAY AWAY", final_proj, "Efficient Line", "#3498db")
 
-# --- 5. CALLBACKS ---
+# --- 5. CALLBACKS (RETAINED) ---
 def sync_live_data():
     with st.spinner("Syncing Live NBA.com Data & Vegas Odds..."):
         st.session_state.live_stats = fetch_live_metrics()
@@ -159,43 +166,52 @@ def sync_live_data():
             if o_res.status_code == 200: st.session_state.results = o_res.json()
         except: st.error("Vegas API Down")
 
-# --- 6. PLAYER PROPS LOGIC (NEW) ---
+# --- 6. PLAYER PROPS LOGIC (UPGRADED: P+R+A + USAGE) ---
 def get_player_props(team_name, opp_team):
     tid = get_team_id(team_name)
     if not tid: return []
     try:
-        # Fetch per-player season stats
         df = teamplayerstats.TeamPlayerStats(team_id=tid, season='2025-26').get_data_frames()[0]
+        opp_data = st.session_state.live_stats.get(opp_team, NBA_STATS.get(opp_team))
+        
         # Matchup factors
-        opp_def = st.session_state.live_stats.get(opp_team, NBA_STATS.get(opp_team))['opp_ppp']
-        league_avg_def = 1.12
-        def_adj = opp_def / league_avg_def
+        pace_factor = opp_data['pace'] / 100
+        def_adj = opp_data['opp_ppp'] / 1.12
         
         props = []
-        for _, p in df.head(8).iterrows(): # Top 8 rotation players
+        for _, p in df.head(8).iterrows():
             name = p['PLAYER_NAME']
-            base_pts = p['PTS']
-            # Usage shift if stars are out
+            
+            # Usage shift Logic
             usage_boost = 1.0
             team_stars = NBA_STATS.get(team_name, {}).get("stars", [])
             for star in team_stars:
                 if st.session_state.injuries.get(star) == "Out" and name != star:
-                    usage_boost += 0.12 # +12% usage if a star is out
+                    usage_boost += 0.15 # Stronger +15% redistribution
             
-            proj = base_pts * def_adj * usage_boost
-            props.append({"name": name, "avg": base_pts, "proj": round(proj, 1)})
+            # Triple-Double Component Projections
+            p_pts = round(p['PTS'] * def_adj * usage_boost, 1)
+            p_reb = round(p['REB'] * pace_factor * (1 + (usage_boost-1)*0.5), 1) # Rebs boost at 50% usage rate
+            p_ast = round(p['AST'] * usage_boost * 1.1, 1) # Assists highly correlated to usage
+            
+            props.append({
+                "name": name, 
+                "pts": p_pts, 
+                "reb": p_reb, 
+                "ast": p_ast,
+                "pra": round(p_pts + p_reb + p_ast, 1)
+            })
         return props
     except: return []
 
-# --- 7. UI DISPLAY ---
+# --- 7. UI DISPLAY (RETAINED & EXPANDED) ---
 st.title("🏀 NBA SHARP AI")
-st.markdown("<p style='color:#888; margin-top:-20px;'>QUANTITATIVE ANALYSIS • PLAYER PROPS • 2026 SEASON</p>", unsafe_allow_html=True)
+st.markdown("<p style='color:#888; margin-top:-20px;'>QUANTITATIVE ANALYSIS • TRIPLE-DOUBLE PROPS • 2026 SEASON</p>", unsafe_allow_html=True)
 
 col_left, col_mid, col_right = st.columns([1,1,1])
 with col_mid:
     st.button("REFRESH ANALYTICS", on_click=sync_live_data)
 
-# MAIN GAMES
 if st.session_state.results:
     t1, t2 = st.tabs(["🔥 GAME TOTALS", "🏹 PLAYER PROPS"])
     
@@ -225,22 +241,22 @@ if st.session_state.results:
             """, unsafe_allow_html=True)
 
     with t2:
-        st.markdown("### Select a Matchup to Analyze Players")
         game_list = [f"{g['away_team']} @ {g['home_team']}" for g in st.session_state.results]
-        selected_game = st.selectbox("Active Matchups", game_list)
+        selected_game = st.selectbox("Active Matchups for Player Analysis", game_list)
         
         if selected_game:
             a_team, h_team = selected_game.split(" @ ")
             p_col1, p_col2 = st.columns(2)
             
-            with p_col1:
-                st.subheader(f"{a_team} Props")
-                a_props = get_player_props(a_team, h_team)
-                for p in a_props:
-                    st.write(f"**{p['name']}**: Avg {p['avg']} → **AI Proj: {p['proj']}**")
-            
-            with p_col2:
-                st.subheader(f"{h_team} Props")
-                h_props = get_player_props(h_team, a_team)
-                for p in h_props:
-                    st.write(f"**{p['name']}**: Avg {p['avg']} → **AI Proj: {p['proj']}**")
+            for team, col, opp in [(a_team, p_col1, h_team), (h_team, p_col2, a_team)]:
+                with col:
+                    st.subheader(f"{team} Targets")
+                    props = get_player_props(team, opp)
+                    for p in props:
+                        st.markdown(f"""
+                            <div class="prop-row">
+                                <span style="font-weight:bold; font-size:16px;">{p['name']}</span><br>
+                                <span style="color:#2ecc71;">PRA: {p['pra']}</span> | 
+                                <span style="color:#eee; font-size:12px;">P: {p['pts']} R: {p['reb']} A: {p['ast']}</span>
+                            </div>
+                        """, unsafe_allow_html=True)
