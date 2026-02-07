@@ -2,15 +2,52 @@ import streamlit as st
 import requests
 from datetime import datetime
 
-# --- 1. CONFIG & SESSION STATE ---
+# --- 1. CONFIG & STYLE (The "Pro" Look) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
-# Initialize session state so results don't vanish on click
+# Inject Custom CSS for a professional dark-mode sportsbook vibe
+st.markdown("""
+    <style>
+    /* Main Background */
+    .stApp {
+        background-color: #05070a;
+        color: #e0e0e0;
+    }
+    /* Custom Card Styling */
+    .sharp-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 15px;
+        padding: 24px;
+        margin-bottom: 20px;
+        transition: transform 0.2s;
+    }
+    .sharp-card:hover {
+        transform: translateY(-5px);
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.2);
+    }
+    /* Metric Styling */
+    .metric-label { font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+    .metric-value { font-size: 1.5rem; font-weight: bold; color: #ffffff; }
+    /* Button Styling */
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #1e88e5;
+        color: white;
+        font-weight: bold;
+        border: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Initialize session state
 if 'results' not in st.session_state: st.session_state.results = None
 if 'injuries' not in st.session_state: st.session_state.injuries = {}
 
-# --- 2. UPDATED TEAM STATS (MID-SEASON 2026) ---
-# Efficiency adjusted to prevent the "All Overs" bug.
+# --- 2. DATA (Keep your existing NBA_STATS) ---
 NBA_STATS = {
     "Atlanta Hawks": {"ppp": 1.12, "opp_ppp": 1.13, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
     "Boston Celtics": {"ppp": 1.21, "opp_ppp": 1.10, "pace": 95.3, "stars": ["Jayson Tatum", "Jaylen Brown"]},
@@ -48,10 +85,8 @@ NBA_STATS = {
 def run_sharp_analysis(away, home, line):
     a = NBA_STATS.get(away, {"ppp": 1.1, "opp_ppp": 1.1, "pace": 100.0, "stars": []})
     h = NBA_STATS.get(home, {"ppp": 1.1, "opp_ppp": 1.1, "pace": 100.0, "stars": []})
-    
     a_ppp, h_ppp = a["ppp"], h["ppp"]
     
-    # 🩹 LIVE INJURY TAX
     for star in a["stars"]:
         status = st.session_state.injuries.get(star, "Available")
         if status in ["Out", "Doubtful"]: a_ppp -= 0.08
@@ -61,15 +96,13 @@ def run_sharp_analysis(away, home, line):
         if status in ["Out", "Doubtful"]: h_ppp -= 0.08
         elif status == "Questionable": h_ppp -= 0.04
 
-    # 🧮 FORMULA (PPP * PACE)
     avg_pace = (a["pace"] + h["pace"]) / 2
     proj_a = ((a_ppp + h["opp_ppp"]) / 2) * avg_pace
-    proj_h = (((h_ppp + 0.015) + a["opp_ppp"]) / 2) * avg_pace # Home Court Advantage
+    proj_h = (((h_ppp + 0.015) + a["opp_ppp"]) / 2) * avg_pace 
     
     final_proj = proj_a + proj_h
     diff = final_proj - line
     
-    # 🚨 SKEPTICAL FILTER (No Edge, Trap, or Bet)
     if abs(diff) > 12: 
         return ("🚫 STAY AWAY", final_proj, "Unreliable Edge (Trap Line)", "#808080")
     if diff > 6.0: 
@@ -81,10 +114,9 @@ def run_sharp_analysis(away, home, line):
     
     return ("🚫 STAY AWAY", final_proj, "Line is too Efficient", "#3498db")
 
-# --- 4. CALLBACK FOR DATA SYNC ---
+# --- 4. CALLBACKS ---
 def sync_live_data():
-    with st.spinner("Fetching Live Hospital & Vegas Feeds..."):
-        # 🏥 Injury Feed
+    with st.spinner("Synchronizing with Vegas..."):
         today = datetime.now().strftime('%Y-%m-%d')
         inj_url = f"https://nba-injury-reports.p.rapidapi.com/injuries/{today}"
         headers = {"X-RapidAPI-Key": "55ee678671msh2dd4de4a390207bp10cd2bjsnf77bbbf65916", "X-RapidAPI-Host": "nba-injury-reports.p.rapidapi.com"}
@@ -93,8 +125,6 @@ def sync_live_data():
             if i_res.status_code == 200:
                 st.session_state.injuries = {item['player']: item['status'] for item in i_res.json()}
         except: pass
-
-        # 🎰 Odds Feed
         try:
             o_res = requests.get("https://api.the-odds-api.com/v4/sports/basketball_nba/odds", 
                                params={"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"})
@@ -104,7 +134,13 @@ def sync_live_data():
 
 # --- 5. UI DISPLAY ---
 st.title("🏀 NBA SHARP AI")
-st.button("REFRESH ANALYSIS", on_click=sync_live_data)
+st.caption("v4.5 | Professional Betting Intelligence")
+
+col1, col2, col3 = st.columns([1,1,1])
+with col2:
+    st.button("REFRESH LIVE DATA", on_click=sync_live_data)
+
+st.divider()
 
 if st.session_state.results:
     for game in st.session_state.results:
@@ -114,16 +150,21 @@ if st.session_state.results:
         
         call, proj, status, color = run_sharp_analysis(a, h, line)
         
+        # Professional Layout Card
         st.markdown(f"""
-            <div style="border: 1px solid #1c2128; padding: 20px; border-radius: 10px; margin-bottom: 15px; border-left: 10px solid {color}; background: #0d1117;">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="sharp-card" style="border-left: 8px solid {color};">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
                     <div>
-                        <h3 style="margin: 0; color: white;">{a} @ {h}</h3>
-                        <p style="margin: 5px 0; color: #8b949e;">Vegas: {line} | AI Projection: <b>{proj:.1f}</b></p>
+                        <p style="color: #888; font-weight: bold; margin-bottom: 5px;">GAME MATCHUP</p>
+                        <h2 style="margin: 0; color: #fff;">{a} <span style="color: #444;">@</span> {h}</h2>
+                        <div style="display: flex; gap: 40px; margin-top: 15px;">
+                            <div><p class="metric-label">Vegas Line</p><p class="metric-value">{line}</p></div>
+                            <div><p class="metric-label">AI Projection</p><p class="metric-value">{proj:.1f}</p></div>
+                        </div>
                     </div>
                     <div style="text-align: right;">
-                        <h2 style="margin: 0; color: {color};">{call}</h2>
-                        <p style="margin: 0; color: #8b949e; font-weight: bold;">{status}</p>
+                        <p style="color: {color}; font-size: 1.8rem; font-weight: 900; margin: 0;">{call}</p>
+                        <p style="color: #eee; background: {color}33; padding: 4px 12px; border-radius: 5px; display: inline-block; margin-top: 10px;">{status}</p>
                     </div>
                 </div>
             </div>
