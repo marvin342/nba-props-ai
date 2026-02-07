@@ -6,4 +6,4 @@ numpy
 scipy
 streamlit-autorefresh
 freeglut3-dev
-nba-api
+nba_api
