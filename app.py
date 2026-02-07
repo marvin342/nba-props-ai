@@ -1,11 +1,22 @@
+import subprocess
+import sys
+
+# --- 0. THE FAIL-SAFE: FORCING NBA_API INSTALLATION ---
+# This block runs before anything else to ensure the cloud server has the library.
+try:
+    from nba_api.stats.endpoints import leaguedashteamstats, teamplayerstats
+    from nba_api.stats.static import teams
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "nba_api"])
+    from nba_api.stats.endpoints import leaguedashteamstats, teamplayerstats
+    from nba_api.stats.static import teams
+
 import streamlit as st
 import requests
 from datetime import datetime
 import pandas as pd
-from nba_api.stats.endpoints import leaguedashteamstats, teamplayerstats
-from nba_api.stats.static import teams
 
-# --- 1. CONFIG & PRO VISUALS (RETAINED) ---
+# --- 1. CONFIG & PRO VISUALS (YOUR CUSTOM CSS) ---
 st.set_page_config(page_title="NBA Sharp AI", page_icon="🏀", layout="wide")
 
 st.markdown("""
@@ -47,7 +58,6 @@ st.markdown("""
         transform: scale(1.05);
         box-shadow: 0 6px 20px rgba(30, 136, 229, 0.6);
     }
-    /* Added Prop Specific Styling */
     .prop-row { 
         background: rgba(255, 255, 255, 0.02); 
         margin-bottom: 8px; 
@@ -63,7 +73,7 @@ if 'results' not in st.session_state: st.session_state.results = None
 if 'injuries' not in st.session_state: st.session_state.injuries = {}
 if 'live_stats' not in st.session_state: st.session_state.live_stats = {}
 
-# --- 2. DATA (Fallback & Star Definitions - RETAINED) ---
+# --- 2. DATA (NBA_STATS FALLBACKS) ---
 NBA_STATS = {
     "Atlanta Hawks": {"ppp": 1.12, "opp_ppp": 1.13, "pace": 105.9, "stars": ["Jalen Johnson", "Zaccharie Risacher"]},
     "Boston Celtics": {"ppp": 1.21, "opp_ppp": 1.10, "pace": 95.3, "stars": ["Jayson Tatum", "Jaylen Brown"]},
@@ -103,7 +113,7 @@ def get_team_id(name):
         return team_dict[0]['id'] if team_dict else None
     except: return None
 
-# --- 3. LIVE DATA FETCH (RETAINED) ---
+# --- 3. LIVE DATA FETCH ---
 def fetch_live_metrics():
     try:
         data = leaguedashteamstats.LeagueDashTeamStats(per_mode_detailed='PerGame').get_data_frames()[0]
@@ -118,99 +128,68 @@ def fetch_live_metrics():
         return live_map
     except: return {}
 
-# --- 4. ANALYTIC ENGINE (RETAINED) ---
+# --- 4. ANALYTIC ENGINE (GAME TOTALS) ---
 def run_sharp_analysis(away, home, line):
     a_base = st.session_state.live_stats.get(away, NBA_STATS.get(away))
     h_base = st.session_state.live_stats.get(home, NBA_STATS.get(home))
-    
-    a_stars = NBA_STATS.get(away, {}).get("stars", [])
-    h_stars = NBA_STATS.get(home, {}).get("stars", [])
-    
     a_ppp, h_ppp = a_base["ppp"], h_base["ppp"]
     
-    for star in a_stars:
-        status = st.session_state.injuries.get(star, "Available")
-        if status in ["Out", "Doubtful"]: a_ppp -= 0.08
-    for star in h_stars:
-        status = st.session_state.injuries.get(star, "Available")
-        if status in ["Out", "Doubtful"]: h_ppp -= 0.08
+    for star in NBA_STATS.get(away, {}).get("stars", []):
+        if st.session_state.injuries.get(star) in ["Out", "Doubtful"]: a_ppp -= 0.08
+    for star in NBA_STATS.get(home, {}).get("stars", []):
+        if st.session_state.injuries.get(star) in ["Out", "Doubtful"]: h_ppp -= 0.08
 
     avg_pace = (a_base["pace"] + h_base["pace"]) / 2
-    proj_a = ((a_ppp + h_base["opp_ppp"]) / 2) * avg_pace
-    proj_h = (((h_ppp + 0.015) + a_base["opp_ppp"]) / 2) * avg_pace 
+    proj = (((a_ppp + h_base["opp_ppp"])/2) * avg_pace) + (((h_ppp + 0.015 + a_base["opp_ppp"])/2) * avg_pace)
+    diff = proj - line
     
-    final_proj = proj_a + proj_h
-    diff = final_proj - line
-    
-    if abs(diff) > 12: return ("🚫 STAY AWAY", final_proj, "Unreliable Edge (Trap)", "#808080")
-    if diff > 6.0: return ("🔥 OVER", final_proj, f"Edge: +{min(15.0, diff):.1f}%", "#2ecc71")
-    if diff < -6.0: return ("❄️ UNDER", final_proj, f"Edge: +{min(15.0, abs(diff)):.1f}%", "#e74c3c")
-    return ("🚫 STAY AWAY", final_proj, "Efficient Line", "#3498db")
+    if abs(diff) > 12: return ("🚫 STAY AWAY", proj, "Trap Line", "#808080")
+    if diff > 6.0: return ("🔥 OVER", proj, f"Edge: +{min(15.0, diff):.1f}%", "#2ecc71")
+    if diff < -6.0: return ("❄️ UNDER", proj, f"Edge: +{min(15.0, abs(diff)):.1f}%", "#e74c3c")
+    return ("⚖️ NEUTRAL", proj, "Efficient", "#3498db")
 
-# --- 5. CALLBACKS (RETAINED) ---
+# --- 5. SYNC LOGIC ---
 def sync_live_data():
-    with st.spinner("Syncing Live NBA.com Data & Vegas Odds..."):
+    with st.spinner("Syncing Live Stats..."):
         st.session_state.live_stats = fetch_live_metrics()
-        today = datetime.now().strftime('%Y-%m-%d')
-        inj_url = f"https://nba-injury-reports.p.rapidapi.com/injuries/{today}"
-        headers = {"X-RapidAPI-Key": "55ee678671msh2dd4de4a390207bp10cd2bjsnf77bbbf65916", "X-RapidAPI-Host": "nba-injury-reports.p.rapidapi.com"}
-        try:
-            i_res = requests.get(inj_url, headers=headers)
-            if i_res.status_code == 200:
-                st.session_state.injuries = {item['player']: item['status'] for item in i_res.json()}
-        except: pass
-        
         try:
             o_res = requests.get("https://api.the-odds-api.com/v4/sports/basketball_nba/odds", 
                                params={"api_key": "27970d14c8e8eb9f2a217c775db6571f", "regions": "us", "markets": "totals"})
             if o_res.status_code == 200: st.session_state.results = o_res.json()
         except: st.error("Vegas API Down")
 
-# --- 6. PLAYER PROPS LOGIC (UPGRADED: P+R+A + USAGE) ---
+# --- 6. PLAYER PROPS LOGIC (PRA + USAGE) ---
 def get_player_props(team_name, opp_team):
     tid = get_team_id(team_name)
     if not tid: return []
     try:
         df = teamplayerstats.TeamPlayerStats(team_id=tid, season='2025-26').get_data_frames()[0]
         opp_data = st.session_state.live_stats.get(opp_team, NBA_STATS.get(opp_team))
-        
-        # Matchup factors
         pace_factor = opp_data['pace'] / 100
-        def_adj = opp_data['opp_ppp'] / 1.12
         
         props = []
         for _, p in df.head(8).iterrows():
             name = p['PLAYER_NAME']
-            
-            # Usage shift Logic
             usage_boost = 1.0
-            team_stars = NBA_STATS.get(team_name, {}).get("stars", [])
-            for star in team_stars:
+            for star in NBA_STATS.get(team_name, {}).get("stars", []):
                 if st.session_state.injuries.get(star) == "Out" and name != star:
-                    usage_boost += 0.15 # Stronger +15% redistribution
+                    usage_boost += 0.15
             
-            # Triple-Double Component Projections
-            p_pts = round(p['PTS'] * def_adj * usage_boost, 1)
-            p_reb = round(p['REB'] * pace_factor * (1 + (usage_boost-1)*0.5), 1) # Rebs boost at 50% usage rate
-            p_ast = round(p['AST'] * usage_boost * 1.1, 1) # Assists highly correlated to usage
+            p_pts = round(p['PTS'] * (opp_data['opp_ppp']/1.12) * usage_boost, 1)
+            p_reb = round(p['REB'] * pace_factor * (1 + (usage_boost-1)*0.5), 1)
+            p_ast = round(p['AST'] * usage_boost * 1.1, 1)
             
-            props.append({
-                "name": name, 
-                "pts": p_pts, 
-                "reb": p_reb, 
-                "ast": p_ast,
-                "pra": round(p_pts + p_reb + p_ast, 1)
-            })
+            props.append({"name": name, "pts": p_pts, "reb": p_reb, "ast": p_ast, "pra": round(p_pts+p_reb+p_ast, 1)})
         return props
     except: return []
 
-# --- 7. UI DISPLAY (RETAINED & EXPANDED) ---
+# --- 7. MAIN UI ---
 st.title("🏀 NBA SHARP AI")
 st.markdown("<p style='color:#888; margin-top:-20px;'>QUANTITATIVE ANALYSIS • TRIPLE-DOUBLE PROPS • 2026 SEASON</p>", unsafe_allow_html=True)
 
-col_left, col_mid, col_right = st.columns([1,1,1])
-with col_mid:
-    st.button("REFRESH ANALYTICS", on_click=sync_live_data)
+col_l, col_m, col_r = st.columns([1,1,1])
+with col_m:
+    if st.button("REFRESH ANALYTICS"): sync_live_data()
 
 if st.session_state.results:
     t1, t2 = st.tabs(["🔥 GAME TOTALS", "🏹 PLAYER PROPS"])
@@ -242,21 +221,15 @@ if st.session_state.results:
 
     with t2:
         game_list = [f"{g['away_team']} @ {g['home_team']}" for g in st.session_state.results]
-        selected_game = st.selectbox("Active Matchups for Player Analysis", game_list)
-        
+        selected_game = st.selectbox("Active Matchups", game_list)
         if selected_game:
-            a_team, h_team = selected_game.split(" @ ")
-            p_col1, p_col2 = st.columns(2)
-            
-            for team, col, opp in [(a_team, p_col1, h_team), (h_team, p_col2, a_team)]:
+            a_t, h_t = selected_game.split(" @ ")
+            c1, c2 = st.columns(2)
+            for team, col, opp in [(a_t, c1, h_t), (h_t, c2, a_t)]:
                 with col:
                     st.subheader(f"{team} Targets")
-                    props = get_player_props(team, opp)
-                    for p in props:
-                        st.markdown(f"""
-                            <div class="prop-row">
-                                <span style="font-weight:bold; font-size:16px;">{p['name']}</span><br>
-                                <span style="color:#2ecc71;">PRA: {p['pra']}</span> | 
-                                <span style="color:#eee; font-size:12px;">P: {p['pts']} R: {p['reb']} A: {p['ast']}</span>
-                            </div>
-                        """, unsafe_allow_html=True)
+                    for p in get_player_props(team, opp):
+                        st.markdown(f"""<div class="prop-row">
+                            <b>{p['name']}</b><br>
+                            <span style="color:#2ecc71;">PRA: {p['pra']}</span> (P:{p['pts']} R:{p['reb']} A:{p['ast']})
+                            </div>""", unsafe_allow_html=True)
